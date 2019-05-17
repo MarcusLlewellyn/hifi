@@ -48,6 +48,8 @@ using namespace render;
 extern void initForwardPipelines(ShapePlumber& plumber);
 
 void RenderForwardTask::build(JobModel& task, const render::Varying& input, render::Varying& output) {
+    task.addJob<SetRenderMethod>("SetRenderMethodTask", render::Args::FORWARD);
+
     // Prepare the ShapePipelines
     auto fadeEffect = DependencyManager::get<FadeEffect>();
     ShapePlumberPointer shapePlumber = std::make_shared<ShapePlumber>();
@@ -251,6 +253,7 @@ void DrawForward::run(const RenderContextPointer& renderContext, const Inputs& i
 
         // Setup lighting model for all items;
         batch.setUniformBuffer(ru::Buffer::LightModel, lightingModel->getParametersBuffer());
+        batch.setResourceTexture(ru::Texture::AmbientFresnel, lightingModel->getAmbientFresnelLUT());
 
         // From the lighting model define a global shapeKey ORED with individiual keys
         ShapeKey::Builder keyBuilder;
