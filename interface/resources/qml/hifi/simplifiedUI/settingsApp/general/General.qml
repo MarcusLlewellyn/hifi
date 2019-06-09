@@ -20,8 +20,8 @@ Flickable {
     id: root
     contentWidth: parent.width
     contentHeight: generalColumnLayout.height
-    topMargin: 16
-    bottomMargin: 16
+    topMargin: 24
+    bottomMargin: 24
     clip: true
 
     onAvatarNametagModeChanged: {
@@ -63,6 +63,7 @@ Flickable {
             ColumnLayout {
                 id: avatarNameTagsRadioButtonGroup
                 Layout.topMargin: simplifiedUI.margins.settings.settingsGroupTopMargin
+                spacing: simplifiedUI.margins.settings.spacingBetweenRadiobuttons
 
                 SimplifiedControls.RadioButton {
                     id: avatarNameTagsOff
@@ -100,7 +101,7 @@ Flickable {
 
             HifiStylesUit.GraphikRegular {
                 id: performanceTitle
-                text: "Performance"
+                text: "Graphics Preset"
                 Layout.maximumWidth: parent.width
                 height: paintedHeight
                 size: 22
@@ -110,31 +111,32 @@ Flickable {
             ColumnLayout {
                 id: performanceRadioButtonGroup
                 Layout.topMargin: simplifiedUI.margins.settings.settingsGroupTopMargin
+                spacing: simplifiedUI.margins.settings.spacingBetweenRadiobuttons
 
                 SimplifiedControls.RadioButton {
                     id: performanceLow
-                    text: "Eco"
-                    checked: Performance.getRefreshRateProfile() === RefreshRate.ECO
+                    text: "Low"
+                    checked: Performance.getPerformancePreset() === PerformanceEnums.LOW
                     onClicked: {
-                        Performance.setRefreshRateProfile(RefreshRate.ECO);
+                        Performance.setPerformancePreset(PerformanceEnums.LOW);
                     }
                 }
 
                 SimplifiedControls.RadioButton {
                     id: performanceMedium
-                    text: "Interactive"
-                    checked: Performance.getRefreshRateProfile() === RefreshRate.INTERACTIVE
+                    text: "Medium"
+                    checked: Performance.getPerformancePreset() === PerformanceEnums.MID
                     onClicked: {
-                        Performance.setRefreshRateProfile(RefreshRate.INTERACTIVE);
+                        Performance.setPerformancePreset(PerformanceEnums.MID);
                     }
                 }
 
                 SimplifiedControls.RadioButton {
                     id: performanceHigh
-                    text: "Realtime"
-                    checked: Performance.getRefreshRateProfile() === RefreshRate.REALTIME
+                    text: "High"
+                    checked: Performance.getPerformancePreset() === PerformanceEnums.HIGH
                     onClicked: {
-                        Performance.setRefreshRateProfile(RefreshRate.REALTIME);
+                        Performance.setPerformancePreset(PerformanceEnums.HIGH);
                     }
                 }
             }
@@ -157,6 +159,7 @@ Flickable {
             ColumnLayout {
                 id: cameraRadioButtonGroup
                 Layout.topMargin: simplifiedUI.margins.settings.settingsGroupTopMargin
+                spacing: simplifiedUI.margins.settings.spacingBetweenRadiobuttons
 
                 SimplifiedControls.RadioButton {
                     id: firstPerson

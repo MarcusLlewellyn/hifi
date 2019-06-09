@@ -7,38 +7,141 @@
 //
 #include "RenderScriptingInterface.h"
 
-const QString DEFERRED = "deferred";
-const QString FORWARD = "forward";
+#include "LightingModel.h"
+#include "AntialiasingEffect.h"
+
 
 RenderScriptingInterface* RenderScriptingInterface::getInstance() {
     static RenderScriptingInterface sharedInstance;
     return &sharedInstance;
 }
 
+std::once_flag RenderScriptingInterface::registry_flag;
+
 RenderScriptingInterface::RenderScriptingInterface() {
-    setRenderMethod((render::Args::RenderMethod)_renderMethodSetting.get() == render::Args::RenderMethod::DEFERRED ? DEFERRED : FORWARD);
+    std::call_once(registry_flag, [] {
+        qmlRegisterType<RenderScriptingInterface>("RenderEnums", 1, 0, "RenderEnums");
+    });
 }
 
-QString RenderScriptingInterface::getRenderMethod() {
-    return (render::Args::RenderMethod)_renderMethodSetting.get() == render::Args::RenderMethod::DEFERRED ? DEFERRED : FORWARD;
+void RenderScriptingInterface::loadSettings() {
+    _renderSettingLock.withReadLock([&] {
+        _renderMethod = (_renderMethodSetting.get());
+        _shadowsEnabled = (_shadowsEnabledSetting.get());
+        _ambientOcclusionEnabled = (_ambientOcclusionEnabledSetting.get());
+        _antialiasingEnabled = (_antialiasingEnabledSetting.get());
+    });
+    forceRenderMethod((RenderMethod)_renderMethod);
+    forceShadowsEnabled(_shadowsEnabled);
+    forceAmbientOcclusionEnabled(_ambientOcclusionEnabled);
+    forceAntialiasingEnabled(_antialiasingEnabled);
 }
 
-void RenderScriptingInterface::setRenderMethod(const QString& renderMethod) {
-    if (QThread::currentThread() != thread()) {
-        QMetaObject::invokeMethod(this, "setRenderMethod", Q_ARG(const QString&, renderMethod));
-        return;
+RenderScriptingInterface::RenderMethod RenderScriptingInterface::getRenderMethod() {
+    return (RenderMethod) _renderMethod;
+}
+
+void RenderScriptingInterface::setRenderMethod(RenderMethod renderMethod) {
+    if (isValidRenderMethod(renderMethod) && (_renderMethod != (int) renderMethod)) {
+        forceRenderMethod(renderMethod);
+        emit settingsChanged();
     }
+}
+void RenderScriptingInterface::forceRenderMethod(RenderMethod renderMethod) {
+    _renderSettingLock.withWriteLock([&] {
+        _renderMethod = (int)renderMethod;
+        _renderMethodSetting.set((int)renderMethod);
 
-    auto config = dynamic_cast<task::SwitchConfig*>(qApp->getRenderEngine()->getConfiguration()->getConfig("RenderMainView.DeferredForwardSwitch"));
-    if (config) {
-        if (renderMethod == DEFERRED) {
-            _renderMethodSetting.set(render::Args::RenderMethod::DEFERRED);
-            config->setBranch(render::Args::RenderMethod::DEFERRED);
-            emit config->dirtyEnabled();
-        } else if (renderMethod == FORWARD) {
-            _renderMethodSetting.set(render::Args::RenderMethod::FORWARD);
-            config->setBranch(render::Args::RenderMethod::FORWARD);
-            emit config->dirtyEnabled();
+        auto config = dynamic_cast<task::SwitchConfig*>(qApp->getRenderEngine()->getConfiguration()->getConfig("RenderMainView.DeferredForwardSwitch"));
+        if (config) {
+            config->setBranch((int)renderMethod);
         }
+    });
+}
+
+QStringList RenderScriptingInterface::getRenderMethodNames() const {
+    static const QStringList refrenderMethodNames = { "DEFERRED", "FORWARD" };
+    return refrenderMethodNames;
+}
+
+bool RenderScriptingInterface::getShadowsEnabled() {
+    return _shadowsEnabled;
+}
+
+void RenderScriptingInterface::setShadowsEnabled(bool enabled) {
+    if (_shadowsEnabled != enabled) {
+        forceShadowsEnabled(enabled);
+        emit settingsChanged();
     }
 }
+
+void RenderScriptingInterface::forceShadowsEnabled(bool enabled) {
+    _renderSettingLock.withWriteLock([&] {
+        _shadowsEnabled = (enabled);
+        _shadowsEnabledSetting.set(enabled);
+
+        auto lightingModelConfig = qApp->getRenderEngine()->getConfiguration()->getConfig<MakeLightingModel>("RenderMainView.LightingModel");
+        if (lightingModelConfig) {
+            Menu::getInstance()->setIsOptionChecked(MenuOption::Shadows, enabled);
+            lightingModelConfig->setShadow(enabled);
+        }
+    });
+}
+
+bool RenderScriptingInterface::getAmbientOcclusionEnabled() {
+    return _ambientOcclusionEnabled;
+}
+
+void RenderScriptingInterface::setAmbientOcclusionEnabled(bool enabled) {
+    if (_ambientOcclusionEnabled != enabled) {
+        forceAmbientOcclusionEnabled(enabled);
+        emit settingsChanged();
+    }
+}
+
+void RenderScriptingInterface::forceAmbientOcclusionEnabled(bool enabled) {
+    _renderSettingLock.withWriteLock([&] {
+        _ambientOcclusionEnabled = (enabled);
+        _ambientOcclusionEnabledSetting.set(enabled);
+
+        auto lightingModelConfig = qApp->getRenderEngine()->getConfiguration()->getConfig<MakeLightingModel>("RenderMainView.LightingModel");
+        if (lightingModelConfig) {
+            Menu::getInstance()->setIsOptionChecked(MenuOption::AmbientOcclusion, enabled);
+            lightingModelConfig->setAmbientOcclusion(enabled);
+        }
+    });
+}
+
+bool RenderScriptingInterface::getAntialiasingEnabled() {
+    return _antialiasingEnabled;
+}
+
+void RenderScriptingInterface::setAntialiasingEnabled(bool enabled) {
+    if (_antialiasingEnabled != enabled) {
+        forceAntialiasingEnabled(enabled);
+        emit settingsChanged();
+    }
+}
+
+void RenderScriptingInterface::forceAntialiasingEnabled(bool enabled) {
+    _renderSettingLock.withWriteLock([&] {
+        _antialiasingEnabled = (enabled);
+        _antialiasingEnabledSetting.set(enabled);
+
+        auto mainViewJitterCamConfig = qApp->getRenderEngine()->getConfiguration()->getConfig<JitterSample>("RenderMainView.JitterCam");
+        auto mainViewAntialiasingConfig = qApp->getRenderEngine()->getConfiguration()->getConfig<Antialiasing>("RenderMainView.Antialiasing");
+        if (mainViewJitterCamConfig && mainViewAntialiasingConfig) {
+            Menu::getInstance()->setIsOptionChecked(MenuOption::AntiAliasing, enabled);
+            if (enabled) {
+                mainViewJitterCamConfig->play();
+                mainViewAntialiasingConfig->setDebugFXAA(false);
+            }
+            else {
+                mainViewJitterCamConfig->none();
+                mainViewAntialiasingConfig->setDebugFXAA(true);
+            }
+        }
+    });
+}
+
+

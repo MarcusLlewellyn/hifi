@@ -867,7 +867,11 @@ bool setupEssentials(int& argc, char** argv, bool runningMarkerExisted) {
     DependencyManager::set<ScriptCache>();
     DependencyManager::set<SoundCache>();
     DependencyManager::set<SoundCacheScriptingInterface>();
+    
+#ifdef HAVE_DDE
     DependencyManager::set<DdeFaceTracker>();
+#endif
+    
     DependencyManager::set<EyeTracker>();
     DependencyManager::set<AudioClient>();
     DependencyManager::set<AudioScope>();
@@ -1190,13 +1194,7 @@ Application::Application(int& argc, char** argv, QElapsedTimer& startupTimer, bo
 
     // setup a timer for domain-server check ins
     QTimer* domainCheckInTimer = new QTimer(this);
-    QWeakPointer<NodeList> nodeListWeak = nodeList;
-    connect(domainCheckInTimer, &QTimer::timeout, [this, nodeListWeak] {
-        auto nodeList = nodeListWeak.lock();
-        if (!isServerlessMode() && nodeList) {
-            nodeList->sendDomainServerCheckIn();
-        }
-    });
+    connect(domainCheckInTimer, &QTimer::timeout, nodeList.data(), &NodeList::sendDomainServerCheckIn);
     domainCheckInTimer->start(DOMAIN_SERVER_CHECK_IN_MSECS);
     connect(this, &QCoreApplication::aboutToQuit, [domainCheckInTimer] {
         domainCheckInTimer->stop();
@@ -1317,8 +1315,16 @@ Application::Application(int& argc, char** argv, QElapsedTimer& startupTimer, bo
     accountManager->setAuthURL(NetworkingConstants::METAVERSE_SERVER_URL());
 
     // use our MyAvatar position and quat for address manager path
-    addressManager->setPositionGetter([this]{ return getMyAvatar()->getWorldFeetPosition(); });
-    addressManager->setOrientationGetter([this]{ return getMyAvatar()->getWorldOrientation(); });
+    addressManager->setPositionGetter([] {
+        auto avatarManager = DependencyManager::get<AvatarManager>();
+        auto myAvatar = avatarManager ? avatarManager->getMyAvatar() : nullptr;
+        return myAvatar ? myAvatar->getWorldFeetPosition() : Vectors::ZERO;
+    });
+    addressManager->setOrientationGetter([] {
+        auto avatarManager = DependencyManager::get<AvatarManager>();
+        auto myAvatar = avatarManager ? avatarManager->getMyAvatar() : nullptr;
+        return myAvatar ? myAvatar->getWorldOrientation() : glm::quat();
+    });
 
     connect(addressManager.data(), &AddressManager::hostChanged, this, &Application::updateWindowTitle);
     connect(this, &QCoreApplication::aboutToQuit, addressManager.data(), &AddressManager::storeCurrentAddress);
@@ -3322,12 +3328,15 @@ void Application::onDesktopRootContextCreated(QQmlContext* surfaceContext) {
     surfaceContext->setContextProperty("AccountServices", AccountServicesScriptingInterface::getInstance());
 
     surfaceContext->setContextProperty("DialogsManager", _dialogsManagerScriptingInterface);
+#ifdef HAVE_DDE
     surfaceContext->setContextProperty("FaceTracker", DependencyManager::get<DdeFaceTracker>().data());
+#endif
     surfaceContext->setContextProperty("AvatarManager", DependencyManager::get<AvatarManager>().data());
     surfaceContext->setContextProperty("LODManager", DependencyManager::get<LODManager>().data());
     surfaceContext->setContextProperty("HMD", DependencyManager::get<HMDScriptingInterface>().data());
     surfaceContext->setContextProperty("Scene", DependencyManager::get<SceneScriptingInterface>().data());
     surfaceContext->setContextProperty("Render", RenderScriptingInterface::getInstance());
+    surfaceContext->setContextProperty("PlatformInfo", PlatformInfoScriptingInterface::getInstance());
     surfaceContext->setContextProperty("Workload", _gameWorkload._engine->getConfiguration().get());
     surfaceContext->setContextProperty("Reticle", getApplicationCompositor().getReticleInterface());
     surfaceContext->setContextProperty("Snapshot", DependencyManager::get<Snapshot>().data());
@@ -3451,6 +3460,7 @@ void Application::setupQmlSurface(QQmlContext* surfaceContext, bool setAdditiona
         surfaceContext->setContextProperty("HiFiAbout", AboutUtil::getInstance());
         surfaceContext->setContextProperty("WalletScriptingInterface", DependencyManager::get<WalletScriptingInterface>().data());
         surfaceContext->setContextProperty("ResourceRequestObserver", DependencyManager::get<ResourceRequestObserver>().data());
+        surfaceContext->setContextProperty("PlatformInfo", PlatformInfoScriptingInterface::getInstance());
     }
 }
 
@@ -3806,10 +3816,14 @@ void Application::handleSandboxStatus(QNetworkReply* reply) {
 
     // If this is a first run we short-circuit the address passed in
     if (_firstRun.get()) {
-       DependencyManager::get<AddressManager>()->goToEntry();
-       sentTo = SENT_TO_ENTRY;
-        _firstRun.set(false);
-
+        if (!_overrideEntry) {
+            DependencyManager::get<AddressManager>()->goToEntry();
+            sentTo = SENT_TO_ENTRY;
+        } else {
+            DependencyManager::get<AddressManager>()->loadSettings(addressLookupString);
+            sentTo = SENT_TO_PREVIOUS_LOCATION;
+        }
+       _firstRun.set(false);
     } else {
         QString goingTo = "";
         if (addressLookupString.isEmpty()) {
@@ -3825,7 +3839,7 @@ void Application::handleSandboxStatus(QNetworkReply* reply) {
         DependencyManager::get<AddressManager>()->loadSettings(addressLookupString);
         sentTo = SENT_TO_PREVIOUS_LOCATION;
     }
-
+    
     UserActivityLogger::getInstance().logAction("startup_sent_to", {
         { "sent_to", sentTo },
         { "sandbox_is_running", sandboxIsRunning },
@@ -3886,6 +3900,7 @@ void Application::setIsInterstitialMode(bool interstitialMode) {
 }
 
 void Application::setIsServerlessMode(bool serverlessDomain) {
+    DependencyManager::get<NodeList>()->setSendDomainServerCheckInEnabled(!serverlessDomain);
     auto tree = getEntities()->getTree();
     if (tree) {
         tree->setIsServerlessMode(serverlessDomain);
@@ -4154,8 +4169,14 @@ bool Application::eventFilter(QObject* object, QEvent* event) {
     }
 
     if (event->type() == QEvent::WindowStateChange) {
-        if (getWindow()->windowState() == Qt::WindowMinimized) {
+        if (getWindow()->windowState() & Qt::WindowMinimized) {
             getRefreshRateManager().setRefreshRateRegime(RefreshRateManager::RefreshRateRegime::MINIMIZED);
+        } else {
+            auto* windowStateChangeEvent = static_cast<QWindowStateChangeEvent*>(event);
+            if (windowStateChangeEvent->oldState() & Qt::WindowMinimized) {
+                getRefreshRateManager().setRefreshRateRegime(RefreshRateManager::RefreshRateRegime::FOCUS_ACTIVE);
+                getRefreshRateManager().resetInactiveTimer();
+            }
         }
     }
 
@@ -4288,10 +4309,7 @@ void Application::keyPressEvent(QKeyEvent* event) {
                 break;
 
             case Qt::Key_B:
-                if (isMeta) {
-                    auto offscreenUi = getOffscreenUI();
-                    offscreenUi->load("Browser.qml");
-                } else if (isOption) {
+                if (isOption) {
                     controller::InputRecorder* inputRecorder = controller::InputRecorder::getInstance();
                     inputRecorder->stopPlayback();
                 }
@@ -4327,12 +4345,6 @@ void Application::keyPressEvent(QKeyEvent* event) {
                     if (audioScriptingInterface && audioScriptingInterface->getPTT()) {
                        audioScriptingInterface->setPushingToTalk(!audioClient->isMuted());
                     }
-                }
-                break;
-
-            case Qt::Key_N:
-                if (!isOption && !isShifted && isMeta) {
-                    DependencyManager::get<NodeList>()->toggleIgnoreRadius();
                 }
                 break;
 
@@ -5159,9 +5171,15 @@ ivec2 Application::getMouse() const {
 }
 
 FaceTracker* Application::getActiveFaceTracker() {
+#ifdef HAVE_DDE
     auto dde = DependencyManager::get<DdeFaceTracker>();
 
-    return dde->isActive() ? static_cast<FaceTracker*>(dde.data()) : nullptr;
+    if (dde && dde->isActive()) {
+        return static_cast<FaceTracker*>(dde.data());
+    }
+#endif
+
+    return nullptr;
 }
 
 FaceTracker* Application::getSelectedFaceTracker() {
@@ -5360,6 +5378,14 @@ void Application::loadSettings() {
         }
     }
 
+    // Load settings of the RenderScritpingInterface
+    // Do that explicitely before being used
+    RenderScriptingInterface::getInstance()->loadSettings();
+
+    // Setup the PerformanceManager which will enforce the several settings to match the Preset
+    // On the first run, the Preset is evaluated from the 
+    getPerformanceManager().setupPerformancePresetSettings(_firstRun.get());
+
     // finish initializing the camera, based on everything we checked above. Third person camera will be used if no settings
     // dictated that we should be in first person
     Menu::getInstance()->setIsOptionChecked(MenuOption::FirstPerson, isFirstPerson);
@@ -5439,9 +5465,7 @@ void Application::init() {
     qCDebug(interfaceapp) << "Loaded settings";
 
     // fire off an immediate domain-server check in now that settings are loaded
-    if (!isServerlessMode()) {
-        DependencyManager::get<NodeList>()->sendDomainServerCheckIn();
-    }
+    QMetaObject::invokeMethod(DependencyManager::get<NodeList>().data(), "sendDomainServerCheckIn");
 
     // This allows collision to be set up properly for shape entities supported by GeometryCache.
     // This is before entity setup to ensure that it's ready for whenever instance collision is initialized.
@@ -6404,6 +6428,7 @@ void Application::update(float deltaTime) {
         PerformanceTimer perfTimer("simulation");
 
         getEntities()->preUpdate();
+        _entitySimulation->removeDeadEntities();
 
         auto t0 = std::chrono::high_resolution_clock::now();
         auto t1 = t0;
@@ -6988,7 +7013,10 @@ void Application::copyDisplayViewFrustum(ViewFrustum& viewOut) const {
 // feature.  However, we still use this to reset face trackers, eye trackers, audio and to optionally re-load the avatar
 // rig and animations from scratch.
 void Application::resetSensors(bool andReload) {
+#ifdef HAVE_DDE
     DependencyManager::get<DdeFaceTracker>()->reset();
+#endif
+    
     DependencyManager::get<EyeTracker>()->reset();
     _overlayConductor.centerUI();
     getActiveDisplayPlugin()->resetSensors();
@@ -7192,7 +7220,7 @@ void Application::nodeKilled(SharedNodePointer node) {
     _octreeProcessor.nodeKilled(node);
 
     _entityEditSender.nodeKilled(node);
-
+     
     if (node->getType() == NodeType::AudioMixer) {
         QMetaObject::invokeMethod(DependencyManager::get<AudioClient>().data(), "audioMixerKilled");
     } else if (node->getType() == NodeType::EntityServer) {
@@ -7380,8 +7408,10 @@ void Application::registerScriptEngineWithApplicationServices(ScriptEnginePointe
     scriptEngine->registerGlobalObject("AccountServices", AccountServicesScriptingInterface::getInstance());
     qScriptRegisterMetaType(scriptEngine.data(), DownloadInfoResultToScriptValue, DownloadInfoResultFromScriptValue);
 
+#ifdef HAVE_DDE
     scriptEngine->registerGlobalObject("FaceTracker", DependencyManager::get<DdeFaceTracker>().data());
-
+#endif
+    
     scriptEngine->registerGlobalObject("AvatarManager", DependencyManager::get<AvatarManager>().data());
 
     scriptEngine->registerGlobalObject("LODManager", DependencyManager::get<LODManager>().data());
@@ -9360,6 +9390,19 @@ void Application::showUrlHandler(const QUrl& url) {
             QDesktopServices::setUrlHandler(url.scheme(), this, "showUrlHandler");
         }
     });
+}
+void Application::overrideEntry(){
+    _overrideEntry = true;
+}
+void Application::forceDisplayName(const QString& displayName) {
+    getMyAvatar()->setDisplayName(displayName);
+}
+void Application::forceLoginWithTokens(const QString& tokens) {
+    DependencyManager::get<AccountManager>()->setAccessTokens(tokens);
+    Setting::Handle<bool>(KEEP_ME_LOGGED_IN_SETTING_NAME, true).set(true);
+}
+void Application::setConfigFileURL(const QString& fileUrl) {
+    DependencyManager::get<AccountManager>()->setConfigFileURL(fileUrl);
 }
 
 #if defined(Q_OS_ANDROID)

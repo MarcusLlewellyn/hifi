@@ -412,7 +412,7 @@ AvatarSharedPointer AvatarManager::newSharedAvatar(const QUuid& sessionUUID) {
     auto otherAvatar = new OtherAvatar(qApp->thread());
     otherAvatar->setSessionUUID(sessionUUID);
     auto nodeList = DependencyManager::get<NodeList>();
-    if (!nodeList || !nodeList->isIgnoringNode(sessionUUID)) {
+    if (nodeList && !nodeList->isIgnoringNode(sessionUUID)) {
         otherAvatar->createOrb();
     }
     return AvatarSharedPointer(otherAvatar, [](OtherAvatar* ptr) { ptr->deleteLater(); });
@@ -521,6 +521,7 @@ void AvatarManager::buildPhysicsTransaction(PhysicsEngine::Transaction& transact
             }
         }
     }
+    _otherAvatarsToChangeInPhysics.clear();
 }
 
 void AvatarManager::handleProcessedPhysicsTransaction(PhysicsEngine::Transaction& transaction) {
@@ -596,7 +597,7 @@ void AvatarManager::handleRemovedAvatar(const AvatarSharedPointer& removedAvatar
         avatar->fadeOut(transaction, removalReason);
 
         workload::SpacePointer space = _space;
-        transaction.transitionFinishedOperator(avatar->getRenderItemID(), [space, avatar]() {
+        transaction.setTransitionFinishedOperator(avatar->getRenderItemID(), [space, avatar]() {
             if (avatar->getLastFadeRequested() != render::Transition::Type::USER_LEAVE_DOMAIN) {
                 // The avatar is using another transition besides the fade-out transition, which means it is still in use.
                 // Deleting the avatar now could cause state issues, so abort deletion and show message.
@@ -645,7 +646,7 @@ void AvatarManager::clearOtherAvatars() {
 }
 
 void AvatarManager::deleteAllAvatars() {
-    assert(_otherAvatarsToChangeInPhysics.empty());
+    _otherAvatarsToChangeInPhysics.clear();
     QReadLocker locker(&_hashLock);
     AvatarHash::iterator avatarIterator = _avatarHash.begin();
     while (avatarIterator != _avatarHash.end()) {

@@ -110,8 +110,9 @@ private slots:
     void performIPAddressUpdate(const HifiSockAddr& newPublicSockAddr);
     void sendHeartbeatToMetaverse() { sendHeartbeatToMetaverse(QString()); }
     void sendHeartbeatToIceServer();
+    void nodePingMonitor();
 
-    void handleConnectedNode(SharedNodePointer newNode); 
+    void handleConnectedNode(SharedNodePointer newNode, quint64 requestReceiveTime); 
     void handleTempDomainSuccess(QNetworkReply* requestReply);
     void handleTempDomainError(QNetworkReply* requestReply);
 
@@ -172,7 +173,7 @@ private:
     void handleKillNode(SharedNodePointer nodeToKill);
     void broadcastNodeDisconnect(const SharedNodePointer& disconnnectedNode);
 
-    void sendDomainListToNode(const SharedNodePointer& node, const HifiSockAddr& senderSockAddr);
+    void sendDomainListToNode(const SharedNodePointer& node, quint64 requestPacketReceiveTime, const HifiSockAddr& senderSockAddr);
 
     bool isInInterestSet(const SharedNodePointer& nodeA, const SharedNodePointer& nodeB);
 
@@ -257,6 +258,7 @@ private:
     QTimer* _iceHeartbeatTimer { nullptr };
     QTimer* _metaverseHeartbeatTimer { nullptr };
     QTimer* _metaverseGroupCacheTimer { nullptr };
+    QTimer* _nodePingMonitorTimer { nullptr };
 
     QList<QHostAddress> _iceServerAddresses;
     QSet<QHostAddress> _failedIceServerAddresses;
