@@ -12,6 +12,7 @@ import QtQuick 2.10
 import "../simplifiedConstants" as SimplifiedConstants
 import "./components" as AvatarAppComponents
 import stylesUit 1.0 as HifiStylesUit
+import TabletScriptingInterface 1.0
 import "qrc:////qml//hifi//models" as HifiModels  // Absolute path so the same code works everywhere.
 
 Rectangle {
@@ -58,7 +59,8 @@ Rectangle {
             if (isLoggedIn) {
                 Commerce.getWalletStatus();
             } else {
-                // Show some error to the user
+                errorText.text = "There was a problem while retrieving your inventory. " +
+                    "Please try closing and re-opening the Avatar app.\n\nLogin status result: " + isLoggedIn;
             }
         }
 
@@ -66,11 +68,19 @@ Rectangle {
             if (walletStatus === 5) {
                 getInventory();
             } else {
-                // Show some error to the user
+                errorText.text = "There was a problem while retrieving your inventory. " +
+                    "Please try closing and re-opening the Avatar app.\n\nWallet status result: " + walletStatus;
             }
         }
 
         onInventoryResult: {
+            if (result.status !== "success") {
+                errorText.text = "There was a problem while retrieving your inventory. " +
+                    "Please try closing and re-opening the Avatar app.\n\nInventory status: " + result.status + "\nMessage: " + result.message;
+            } else if (result.data && result.data.assets && result.data.assets.length === 0 && avatarAppInventoryModel.count === 0) {
+                errorText.text = "You have not created any avatars yet! Create an avatar with the Avatar Creator, then close and re-open the Avatar App."
+            }
+
             avatarAppInventoryModel.handlePage(result.status !== "success" && result.message, result);
             root.updatePreviewUrl();
         }
@@ -87,6 +97,33 @@ Rectangle {
             yScale: -1
             origin.x: accent.width / 2
             origin.y: accent.height / 2
+        }
+    }
+
+    Image {
+        id: homeButton
+        source: "images/homeIcon.svg"
+        opacity: homeButtonMouseArea.containsMouse ? 1.0 : 0.7
+        anchors.top: parent.top
+        anchors.topMargin: 15
+        anchors.right: parent.right
+        anchors.rightMargin: 24
+        width: 14
+        height: 13
+
+        MouseArea {
+            id: homeButtonMouseArea
+            anchors.fill: parent
+            hoverEnabled: true
+            onEntered: {
+                Tablet.playSound(TabletEnums.ButtonHover);
+            }
+            onClicked: {
+                Tablet.playSound(TabletEnums.ButtonClick);
+                // Can't use `Window.location` in QML, so just use what setting `Window.location` actually calls under the hood:
+                // AddressManager.handleLookupString().
+                AddressManager.handleLookupString(LocationBookmarks.getHomeLocationAddress());
+            }
         }
     }
 
@@ -172,7 +209,7 @@ Rectangle {
         anchors.bottom: parent.bottom
             
         AnimatedImage {
-            visible: !inventoryContentsList.visible
+            visible: !inventoryContentsList.visible && !errorText.visible
             anchors.centerIn: parent
             width: 72
             height: width
@@ -181,7 +218,7 @@ Rectangle {
 
         ListView {
             id: inventoryContentsList
-            visible: avatarAppInventoryModel.count !== 0
+            visible: avatarAppInventoryModel.count !== 0 && !errorText.visible
             interactive: contentItem.height > height
             clip: true
             model: avatarAppInventoryModel
@@ -195,6 +232,18 @@ Rectangle {
                 standaloneOptimized: model.standalone_optimized
                 standaloneIncompatible: model.standalone_incompatible
             }
+        }
+
+        HifiStylesUit.GraphikRegular {
+            id: errorText
+            text: ""
+            visible: text !== ""
+            anchors.fill: parent
+            size: 22
+            color: simplifiedUI.colors.text.white
+            wrapMode: Text.Wrap 
+            verticalAlignment: Text.AlignVCenter
+            horizontalAlignment: Text.AlignHCenter
         }
     }
 

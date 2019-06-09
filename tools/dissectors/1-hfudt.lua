@@ -158,15 +158,25 @@ local packet_types = {
 }
 
 local unsourced_packet_types = {
-  ["DomainList"] = true
+  ["DomainList"] = true,
+  ["DomainConnectRequest"] = true,
+  ["ICEPing"] = true,
+  ["ICEPingReply"] = true,
+  ["DomainServerConnectionToken"] = true,
+  ["DomainSettingsRequest"] = true,
+  ["ICEServerHeartbeatACK"] = true
 }
 
 local fragments = {}
 
+local RFC_5389_MAGIC_COOKIE = 0x2112A442
+
 function p_hfudt.dissector(buf, pinfo, tree)
 
-   -- make sure this isn't a STUN packet - those don't follow HFUDT format
-  if pinfo.dst == Address.ip("stun.highfidelity.io") then return end
+  -- make sure this isn't a STUN packet - those don't follow HFUDT format
+  if buf:len() >= 8 and buf(4, 4):uint() == RFC_5389_MAGIC_COOKIE then
+    return 0
+  end
 
   -- validate that the packet length is at least the minimum control packet size
   if buf:len() < 4 then return end
@@ -303,7 +313,10 @@ function p_hfudt.dissector(buf, pinfo, tree)
 
     -- check if we have part of a message that we need to re-assemble
     -- before it can be dissected
-    if message_bit == 1 and message_position ~= 0 then
+    -- limit array indices to prevent lock-up with arbitrary data
+    if message_bit == 1 and message_position ~= 0 and message_number < 100
+      and message_part_number < 100 then
+
       if fragments[message_number] == nil then
         fragments[message_number] = {}
       end

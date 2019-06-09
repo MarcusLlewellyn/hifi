@@ -370,10 +370,10 @@ class MyAvatar : public Avatar {
     Q_PROPERTY(QUuid SELF_ID READ getSelfID CONSTANT)
 
     Q_PROPERTY(float walkSpeed READ getWalkSpeed WRITE setWalkSpeed);
-    Q_PROPERTY(float analogPlusWalkSpeed READ getAnalogPlusWalkSpeed WRITE setAnalogPlusWalkSpeed);
-    Q_PROPERTY(float analogPlusSprintSpeed READ getAnalogPlusSprintSpeed WRITE setAnalogPlusSprintSpeed);
-    Q_PROPERTY(float walkBackwardSpeed READ getWalkBackwardSpeed WRITE setWalkBackwardSpeed);
-    Q_PROPERTY(float sprintSpeed READ getSprintSpeed WRITE setSprintSpeed);
+    Q_PROPERTY(float analogPlusWalkSpeed READ getAnalogPlusWalkSpeed WRITE setAnalogPlusWalkSpeed NOTIFY analogPlusWalkSpeedChanged);
+    Q_PROPERTY(float analogPlusSprintSpeed READ getAnalogPlusSprintSpeed WRITE setAnalogPlusSprintSpeed NOTIFY analogPlusSprintSpeedChanged);
+    Q_PROPERTY(float walkBackwardSpeed READ getWalkBackwardSpeed WRITE setWalkBackwardSpeed NOTIFY walkBackwardSpeedChanged);
+    Q_PROPERTY(float sprintSpeed READ getSprintSpeed WRITE setSprintSpeed NOTIFY sprintSpeedChanged);
     Q_PROPERTY(bool isInSittingState READ getIsInSittingState WRITE setIsInSittingState);
     Q_PROPERTY(MyAvatar::SitStandModelType userRecenterModel READ getUserRecenterModel WRITE setUserRecenterModel);
     Q_PROPERTY(bool isSitStandStateLocked READ getIsSitStandStateLocked WRITE setIsSitStandStateLocked);
@@ -2162,6 +2162,38 @@ signals:
     void audioListenerModeChanged();
 
     /**jsdoc
+     * Notifies when the analogPlusWalkSpeed value is changed.
+     * @function MyAvatar.analogPlusWalkSpeedChanged
+     * @param {float} value - the new avatar walk speed
+     * @returns {Signal} 
+     */
+    void analogPlusWalkSpeedChanged(float value);
+
+    /**jsdoc
+     * Notifies when the analogPlusSprintSpeed value is changed.
+     * @function MyAvatar.analogPlusSprintSpeedChanged
+     * @param {float} value - the new avatar sprint speed
+     * @returns {Signal} 
+     */
+    void analogPlusSprintSpeedChanged(float value);
+
+    /**jsdoc
+     * Notifies when the sprintSpeed value is changed.
+     * @function MyAvatar.sprintSpeedChanged
+     * @param {float} value - the new avatar sprint speed
+     * @returns {Signal} 
+     */
+    void sprintSpeedChanged(float value);
+
+    /**jsdoc
+     * Notifies when the walkBackwardSpeed value is changed.
+     * @function MyAvatar.walkBackwardSpeedChanged
+     * @param {float} value - the new avatar walk backward speed
+     * @returns {Signal} 
+     */
+    void walkBackwardSpeedChanged(float value);
+
+    /**jsdoc
      * @function MyAvatar.transformChanged
      * @returns {Signal} 
      * @deprecated This signal is deprecated and will be removed.
@@ -2409,7 +2441,7 @@ private:
     void updateEyeContactTarget(float deltaTime);
 
     // These are made private for MyAvatar so that you will use the "use" methods instead
-    virtual void setSkeletonModelURL(const QUrl& skeletonModelURL) override;
+    Q_INVOKABLE virtual void setSkeletonModelURL(const QUrl& skeletonModelURL) override;
 
     virtual void updatePalms() override {}
     void lateUpdatePalms();
@@ -2603,7 +2635,7 @@ private:
     bool _enableDebugDrawIKChains { false };
     bool _enableDebugDrawDetailedCollision { false };
 
-    mutable bool _cauterizationNeedsUpdate; // do we need to scan children and update their "cauterized" state?
+    mutable bool _cauterizationNeedsUpdate { false }; // do we need to scan children and update their "cauterized" state?
 
     AudioListenerMode _audioListenerMode;
     glm::vec3 _customListenPosition;
@@ -2741,7 +2773,8 @@ private:
     mutable std::set<QUuid> _staleCachedAvatarEntityBlobs;
     //
     // keep a ScriptEngine around so we don't have to instantiate on the fly (these are very slow to create/delete)
-    QScriptEngine* _myScriptEngine { nullptr };
+    mutable std::mutex _scriptEngineLock;
+    QScriptEngine* _scriptEngine { nullptr };
     bool _needToSaveAvatarEntitySettings { false };
 };
 

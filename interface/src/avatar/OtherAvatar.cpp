@@ -62,7 +62,7 @@ void OtherAvatar::removeOrb() {
 }
 
 void OtherAvatar::updateOrbPosition() {
-    if (_otherAvatarOrbMeshPlaceholderID.isNull()) {
+    if (!_otherAvatarOrbMeshPlaceholderID.isNull()) {
         EntityItemProperties properties;
         properties.setPosition(getHead()->getPosition());
         DependencyManager::get<EntityScriptingInterface>()->editEntity(_otherAvatarOrbMeshPlaceholderID, properties);
@@ -219,7 +219,7 @@ bool OtherAvatar::isInPhysicsSimulation() const {
 }
 
 bool OtherAvatar::shouldBeInPhysicsSimulation() const {
-    return !isDead() && _workloadRegion < workload::Region::R3;
+    return !isDead() && _workloadRegion <= workload::Region::R3;
 }
 
 bool OtherAvatar::needsPhysicsUpdate() const {

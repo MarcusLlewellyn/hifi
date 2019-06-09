@@ -43,15 +43,6 @@ static Setting::Handle<quint16> LIMITED_NODELIST_LOCAL_PORT("LimitedNodeList.Loc
 using namespace std::chrono_literals;
 static const std::chrono::milliseconds CONNECTION_RATE_INTERVAL_MS = 1s;
 
-const std::set<NodeType_t> SOLO_NODE_TYPES = {
-    NodeType::AvatarMixer,
-    NodeType::AudioMixer,
-    NodeType::AssetServer,
-    NodeType::EntityServer,
-    NodeType::MessagesMixer,
-    NodeType::EntityScriptServer
-};
-
 LimitedNodeList::LimitedNodeList(int socketListenPort, int dtlsListenPort) :
     _nodeSocket(this),
     _packetReceiver(new PacketReceiver(this))
@@ -446,7 +437,18 @@ qint64 LimitedNodeList::sendPacket(std::unique_ptr<NLPacket> packet, const HifiS
 
         return size;
     } else {
-        return sendUnreliablePacket(*packet, sockAddr, hmacAuth);
+        auto size = sendUnreliablePacket(*packet, sockAddr, hmacAuth);
+        if (size < 0) {
+            auto now = usecTimestampNow();
+            eachNode([now](const SharedNodePointer & node) {
+                qCDebug(networking) << "Stats for " << node->getPublicSocket() << "\n"
+                    << "    Last Heard Microstamp: " << node->getLastHeardMicrostamp() << " (" << (now - node->getLastHeardMicrostamp()) << "usec ago)\n"
+                    << "    Outbound Kbps: " << node->getOutboundKbps() << "\n"
+                    << "    Inbound Kbps: " << node->getInboundKbps() << "\n"
+                    << "    Ping: " << node->getPingMs();
+            });
+        }
+        return size;
     }
 }
 
@@ -869,6 +871,8 @@ void LimitedNodeList::removeSilentNodes() {
 
     QSet<SharedNodePointer> killedNodes;
 
+    auto startedAt = usecTimestampNow();
+
     eachNodeHashIterator([&](NodeHash::iterator& it){
         SharedNodePointer node = it->second;
         node->getMutex().lock();
@@ -889,7 +893,15 @@ void LimitedNodeList::removeSilentNodes() {
     });
 
     foreach(const SharedNodePointer& killedNode, killedNodes) {
-        qCDebug(networking_ice) << "Removing silent node" << killedNode;
+        auto now = usecTimestampNow();
+        qCDebug(networking_ice) << "Removing silent node" << *killedNode << "\n"
+            << "    Now: " << now << "\n"
+            << "    Started at: " << startedAt << " (" << (now - startedAt) << "us ago)\n"
+            << "    Last Heard Microstamp: " << killedNode->getLastHeardMicrostamp() << " (" << (now - killedNode->getLastHeardMicrostamp()) << "us ago)\n"
+            << "    Forced Never Silent: " << killedNode->isForcedNeverSilent() << "\n"
+            << "    Inbound PPS: " << killedNode->getInboundPPS() << "\n"
+            << "    Inbound Kbps: " << killedNode->getInboundKbps() << "\n"
+            << "    Ping: " << killedNode->getPingMs();
         handleNodeKill(killedNode);
     }
 }

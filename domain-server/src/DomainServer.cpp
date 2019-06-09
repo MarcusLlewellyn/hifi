@@ -14,6 +14,7 @@
 #include <memory>
 #include <random>
 #include <iostream>
+#include <chrono>
 
 #include <QDir>
 #include <QJsonDocument>
@@ -56,6 +57,8 @@
 #include <Gzip.h>
 
 #include <OctreeDataUtils.h>
+
+using namespace std::chrono;
 
 Q_LOGGING_CATEGORY(domain_server, "hifi.domain_server")
 Q_LOGGING_CATEGORY(domain_server_ice, "hifi.domain_server.ice")
@@ -319,6 +322,11 @@ DomainServer::DomainServer(int argc, char* argv[]) :
     _contentManager->initialize(true);
 
     connect(_contentManager.get(), &DomainContentBackupManager::recoveryCompleted, this, &DomainServer::restart);
+
+static const int NODE_PING_MONITOR_INTERVAL_MSECS = 1 * MSECS_PER_SECOND;
+    _nodePingMonitorTimer = new QTimer{ this };
+    connect(_nodePingMonitorTimer, &QTimer::timeout, this, &DomainServer::nodePingMonitor);
+    _nodePingMonitorTimer->start(NODE_PING_MONITOR_INTERVAL_MSECS);
 }
 
 void DomainServer::parseCommandLine(int argc, char* argv[]) {
@@ -1068,7 +1076,10 @@ void DomainServer::processListRequestPacket(QSharedPointer<ReceivedMessage> mess
     // update the connecting hostname in case it has changed
     nodeData->setPlaceName(nodeRequestData.placeName);
 
-    sendDomainListToNode(sendingNode, message->getSenderSockAddr());
+    // client-side send time of last connect/domain list request
+    nodeData->setLastDomainCheckinTimestamp(nodeRequestData.lastPingTimestamp);
+
+    sendDomainListToNode(sendingNode, message->getFirstPacketReceiveTime(), message->getSenderSockAddr());
 }
 
 bool DomainServer::isInInterestSet(const SharedNodePointer& nodeA, const SharedNodePointer& nodeB) {
@@ -1130,11 +1141,11 @@ QUrl DomainServer::oauthAuthorizationURL(const QUuid& stateUUID) {
     return authorizationURL;
 }
 
-void DomainServer::handleConnectedNode(SharedNodePointer newNode) {
+void DomainServer::handleConnectedNode(SharedNodePointer newNode, quint64 requestReceiveTime) {
     DomainServerNodeData* nodeData = static_cast<DomainServerNodeData*>(newNode->getLinkedData());
 
     // reply back to the user with a PacketType::DomainList
-    sendDomainListToNode(newNode, nodeData->getSendingSockAddr());
+    sendDomainListToNode(newNode, requestReceiveTime, nodeData->getSendingSockAddr());
 
     // if this node is a user (unassigned Agent), signal
     if (newNode->getType() == NodeType::Agent && !nodeData->wasAssigned()) {
@@ -1150,7 +1161,7 @@ void DomainServer::handleConnectedNode(SharedNodePointer newNode) {
     broadcastNewNode(newNode);
 }
 
-void DomainServer::sendDomainListToNode(const SharedNodePointer& node, const HifiSockAddr &senderSockAddr) {
+void DomainServer::sendDomainListToNode(const SharedNodePointer& node, quint64 requestPacketReceiveTime, const HifiSockAddr &senderSockAddr) {
     const int NUM_DOMAIN_LIST_EXTENDED_HEADER_BYTES = NUM_BYTES_RFC4122_UUID + NLPacket::NUM_BYTES_LOCALID +
         NUM_BYTES_RFC4122_UUID + NLPacket::NUM_BYTES_LOCALID + 4;
 
@@ -1158,7 +1169,7 @@ void DomainServer::sendDomainListToNode(const SharedNodePointer& node, const Hif
     // this data is at the beginning of each of the domain list packets
     QByteArray extendedHeader(NUM_DOMAIN_LIST_EXTENDED_HEADER_BYTES, 0);
     QDataStream extendedHeaderStream(&extendedHeader, QIODevice::WriteOnly);
-
+    DomainServerNodeData* nodeData = static_cast<DomainServerNodeData*>(node->getLinkedData());
     auto limitedNodeList = DependencyManager::get<LimitedNodeList>();
 
     extendedHeaderStream << limitedNodeList->getSessionUUID();
@@ -1167,12 +1178,13 @@ void DomainServer::sendDomainListToNode(const SharedNodePointer& node, const Hif
     extendedHeaderStream << node->getLocalID();
     extendedHeaderStream << node->getPermissions();
     extendedHeaderStream << limitedNodeList->getAuthenticatePackets();
+    extendedHeaderStream << nodeData->getLastDomainCheckinTimestamp();
+    extendedHeaderStream << quint64(duration_cast<microseconds>(system_clock::now().time_since_epoch()).count());
+    extendedHeaderStream << quint64(duration_cast<microseconds>(p_high_resolution_clock::now().time_since_epoch()).count()) - requestPacketReceiveTime;
     auto domainListPackets = NLPacketList::create(PacketType::DomainList, extendedHeader);
 
     // always send the node their own UUID back
     QDataStream domainListStream(domainListPackets.get());
-
-    DomainServerNodeData* nodeData = static_cast<DomainServerNodeData*>(node->getLinkedData());
 
     // store the nodeInterestSet on this DomainServerNodeData, in case it has changed
     auto& nodeInterestSet = nodeData->getNodeInterestSet();
@@ -1713,6 +1725,18 @@ void DomainServer::sendHeartbeatToIceServer() {
         qCDebug(domain_server_ice) << "Not sending ice-server heartbeat since there is no selected ice-server.";
         qCDebug(domain_server_ice) << "Waiting for" << _iceServerAddr << "host lookup response";
     }
+}
+
+void DomainServer::nodePingMonitor() {
+    auto nodeList = DependencyManager::get<LimitedNodeList>();
+    quint64 now = usecTimestampNow();
+
+    nodeList->eachNode([now](const SharedNodePointer& node) {
+        quint64 lastHeard = now - node->getLastHeardMicrostamp();
+        if (lastHeard > 2 * USECS_PER_SECOND) {
+            qCDebug(domain_server) << "Haven't heard from " << node->getPublicSocket() << " in " << lastHeard / USECS_PER_MSEC << " msec";
+        }
+    });
 }
 
 void DomainServer::processOctreeDataPersistMessage(QSharedPointer<ReceivedMessage> message) {

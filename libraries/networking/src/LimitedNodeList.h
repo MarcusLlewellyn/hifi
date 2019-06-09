@@ -49,11 +49,9 @@
 
 const int INVALID_PORT = -1;
 
-const quint64 NODE_SILENCE_THRESHOLD_MSECS = 20 * 1000;
+const quint64 NODE_SILENCE_THRESHOLD_MSECS = 10 * 1000;
 
 static const size_t DEFAULT_MAX_CONNECTION_RATE { std::numeric_limits<size_t>::max() };
-
-extern const std::set<NodeType_t> SOLO_NODE_TYPES;
 
 const char DEFAULT_ASSIGNMENT_SERVER_HOSTNAME[] = "localhost";
 
@@ -329,6 +327,15 @@ public:
     int getOutboundPPS() const { return _outboundPPS; }
     float getInboundKbps() const { return _inboundKbps; }
     float getOutboundKbps() const { return _outboundKbps; }
+
+    const std::set<NodeType_t> SOLO_NODE_TYPES = {
+        NodeType::AvatarMixer,
+        NodeType::AudioMixer,
+        NodeType::AssetServer,
+        NodeType::EntityServer,
+        NodeType::MessagesMixer,
+        NodeType::EntityScriptServer
+    };
 
 public slots:
     void reset();
