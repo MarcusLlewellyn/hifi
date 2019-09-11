@@ -75,6 +75,7 @@ void OtherAvatar::createOrb() {
         properties.setType(EntityTypes::Sphere);
         properties.setAlpha(1.0f);
         properties.setColor(getLoadingOrbColor(_loadingStatus));
+        properties.setName("Loading Avatar " + getID().toString());
         properties.setPrimitiveMode(PrimitiveMode::LINES);
         properties.getPulse().setMin(0.5f);
         properties.getPulse().setMax(1.0f);
@@ -177,7 +178,7 @@ const btCollisionShape* OtherAvatar::createCollisionShape(int32_t jointIndex, bo
     return ObjectMotionState::getShapeManager()->getShape(shapeInfo);
 }
 
-void OtherAvatar::resetDetailedMotionStates() {
+void OtherAvatar::forgetDetailedMotionStates() {
     // NOTE: the DetailedMotionStates are deleted after being added to PhysicsEngine::Transaction::_objectsToRemove
     // See AvatarManager::handleProcessedPhysicsTransaction()
     _detailedMotionStates.clear();
@@ -201,6 +202,7 @@ void OtherAvatar::computeShapeLOD() {
         break;
     case workload::Region::UNKNOWN:
     case workload::Region::INVALID:
+    case workload::Region::R4:
     case workload::Region::R3:
     default:
         newLOD = BodyLOD::Sphere;
@@ -209,7 +211,7 @@ void OtherAvatar::computeShapeLOD() {
     if (newLOD != _bodyLOD) {
         _bodyLOD = newLOD;
         if (isInPhysicsSimulation()) {
-            _needsReinsertion = true;
+            _needsDetailedRebuild = true;
         }
     }
 }
@@ -224,14 +226,14 @@ bool OtherAvatar::shouldBeInPhysicsSimulation() const {
 
 bool OtherAvatar::needsPhysicsUpdate() const {
     constexpr uint32_t FLAGS_OF_INTEREST = Simulation::DIRTY_SHAPE | Simulation::DIRTY_MASS | Simulation::DIRTY_POSITION | Simulation::DIRTY_COLLISION_GROUP;
-    return (_needsReinsertion || (_motionState && (bool)(_motionState->getIncomingDirtyFlags() & FLAGS_OF_INTEREST)));
+    return (_needsDetailedRebuild || (_motionState && (bool)(_motionState->getIncomingDirtyFlags() & FLAGS_OF_INTEREST)));
 }
 
 void OtherAvatar::rebuildCollisionShape() {
     if (_motionState) {
         // do not actually rebuild here, instead flag for later
         _motionState->addDirtyFlags(Simulation::DIRTY_SHAPE | Simulation::DIRTY_MASS);
-        _needsReinsertion = true;
+        _needsDetailedRebuild = true;
     }
 }
 
@@ -510,13 +512,13 @@ void OtherAvatar::handleChangedAvatarEntityData() {
                 entity->setParentID(NULL_ID);
                 entity->setParentID(oldParentID);
 
-                if (entity->stillHasMyGrabAction()) {
+                if (entity->stillHasMyGrab()) {
                     // For this case: we want to ignore transform+velocities coming from authoritative OtherAvatar
                     // because the MyAvatar is grabbing and we expect the local grab state
                     // to have enough information to prevent simulation drift.
                     //
                     // Clever readers might realize this could cause problems.  For example,
-                    // if an ignored OtherAvagtar were to simultanously grab the object then there would be
+                    // if an ignored OtherAvatar were to simultanously grab the object then there would be
                     // a noticeable discrepancy between participants in the distributed physics simulation,
                     // however the difference would be stable and would not drift.
                     properties.clearTransformOrVelocityChanges();

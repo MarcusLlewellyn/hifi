@@ -18,9 +18,39 @@
 #include <QtCore/QPointer>
 #include <QtScript/QScriptValue>
 #include <QQmlEngine>
+#include <ui/QmlWrapper.h>
 
 #include <glm/glm.hpp>
 #include <GLMHelpers.h>
+
+class QmlWindowProxy : public QmlWrapper {
+    Q_OBJECT
+
+public:
+    QmlWindowProxy(QObject* qmlObject, QObject* parent = nullptr);
+
+    Q_INVOKABLE void parentNativeWindowToMainWindow();
+
+    QObject* getQmlWindow() const { return _qmlWindow; }
+private:
+    QObject* _qmlWindow;
+};
+
+
+class InteractiveWindowProxy : public QObject {
+    Q_OBJECT
+public:
+    InteractiveWindowProxy(){}
+public slots:
+
+    void emitScriptEvent(const QVariant& scriptMessage);
+    void emitWebEvent(const QVariant& webMessage);
+
+signals:
+
+    void scriptEventReceived(const QVariant& message);
+    void webEventReceived(const QVariant& message);
+};
 
 namespace InteractiveWindowEnums {
     Q_NAMESPACE
@@ -96,7 +126,7 @@ class InteractiveWindow : public QObject {
     Q_PROPERTY(int presentationMode READ getPresentationMode WRITE setPresentationMode)
 
 public:
-    InteractiveWindow(const QString& sourceUrl, const QVariantMap& properties);
+    InteractiveWindow(const QString& sourceUrl, const QVariantMap& properties, bool restricted);
     ~InteractiveWindow();
 
 private:
@@ -287,9 +317,14 @@ protected slots:
      */
     void qmlToScript(const QVariant& message);
 
+    void forwardKeyPressEvent(int key, int modifiers);
+    void forwardKeyReleaseEvent(int key, int modifiers);
+    void emitMainWindowResizeEvent();
+
 private:
-    QPointer<QObject> _qmlWindow;
+    std::shared_ptr<QmlWindowProxy> _qmlWindowProxy;
     std::shared_ptr<DockWidget> _dockWidget { nullptr };
+    std::unique_ptr<InteractiveWindowProxy, std::function<void(InteractiveWindowProxy*)>> _interactiveWindowProxy;
 };
 
 typedef InteractiveWindow* InteractiveWindowPointer;

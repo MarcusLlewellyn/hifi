@@ -12,6 +12,7 @@
 
 #include "Platform.h"
 #include "PlatformKeys.h"
+#include <qglobal.h>
 
 using namespace platform;
 
@@ -31,9 +32,9 @@ Profiler::Tier Profiler::profilePlatform() {
         return platformTier;
     }
 
-    // Not filtered yet, let s try to make sense of the cpu and gpu info
-    auto cpuInfo = platform::getCPU(0);
-    auto gpuInfo = platform::getGPU(0);
+    // Not filtered yet, let s try to make sense of the  master cpu and master gpu info
+    auto cpuInfo = platform::getCPU(platform::getMasterCPU());
+    auto gpuInfo = platform::getGPU(platform::getMasterGPU());
     if (filterOnProcessors(computerInfo, cpuInfo, gpuInfo, platformTier)) {
         return platformTier;
     }
@@ -57,21 +58,31 @@ bool filterOnComputer(const platform::json& computer, Profiler::Tier& tier) {
 // tier filter on computer MACOS
 bool filterOnComputerMACOS(const platform::json& computer, Profiler::Tier& tier) {
 
-    // it s a macos computer, probably can tell from the model name:
-    if (computer.count(keys::computer::model)) {
-        const auto model = computer[keys::computer::model].get<std::string>();
-        if (model.find("MacBookAir") != std::string::npos) {
+    // it s a macos computer, probably can tell from the model name but...
+    // The simple rule for mac is
+    // if it s an intel gpu then LOW
+    // else go mid
+    auto gpu = platform::getGPU(platform::getMasterGPU());
+    if (gpu.count(keys::gpu::vendor)) {
+        std::string gpuVendor = gpu[keys::gpu::vendor].get<std::string>();
+        
+        // intel integrated graphics
+        if (gpuVendor.find(keys::gpu::vendor_Intel) != std::string::npos) {
+            // go LOW because Intel GPU
             tier = Profiler::Tier::LOW;
             return true;
-        } else if (model.find("MacBookPro") != std::string::npos) {
+        } else {
+            // else go mid
             tier = Profiler::Tier::MID;
             return true;
-        } else if (model.find("MacBook") != std::string::npos) {
-            tier = Profiler::Tier::LOW;
-            return true;
         }
+    } else {
+        // no gpuinfo ?
+        // Go low in doubt
+        // go LOW because Intel GPU
+        tier = Profiler::Tier::LOW;
+        return true;
     }
-    return false;
 }
 
 bool filterOnProcessors(const platform::json& computer, const platform::json& cpu, const platform::json& gpu, Profiler::Tier& tier) {
@@ -96,8 +107,8 @@ bool filterOnProcessors(const platform::json& computer, const platform::json& cp
 
         // intel integrated graphics
         if (gpuVendor.find(keys::gpu::vendor_Intel) != std::string::npos) {
-            // go mid because GPU
-            tier = Profiler::Tier::MID;
+            // go LOW because Intel GPU
+            tier = Profiler::Tier::LOW;
             return true;
         }
         // AMD gpu
@@ -124,4 +135,18 @@ bool filterOnProcessors(const platform::json& computer, const platform::json& cp
 
     // Not able to profile
     return false;
+}
+
+// Ugly very adhoc capability check to know if a particular hw can REnder with Deferred method or not
+// YES for PC  windows and linux
+// NO for android
+// YES on macos EXCEPT for macbookair with gpu intel iris or intel HD 6000
+bool Profiler::isRenderMethodDeferredCapable() {
+#if defined(Q_OS_MAC)
+    return true;
+#elif defined(Q_OS_ANDROID)
+    return false;
+#else
+    return true;
+#endif
 }

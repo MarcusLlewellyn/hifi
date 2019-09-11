@@ -24,9 +24,12 @@ Rectangle {
     color: global.colorBack
 
     ScrollView {
+        id: scrollView
         anchors.fill: parent 
+        contentWidth: parent.width
         clip: true
-        Column {    
+
+        Column { 
             anchors.left: parent.left 
             anchors.right: parent.right 
 
@@ -35,8 +38,6 @@ Rectangle {
                 isUnfold: true
                 panelFrameData: Component {
                     PerformanceSettings {
-                        anchors.left: parent.left 
-                        anchors.right: parent.right 
                     }
                 }
             }
@@ -45,17 +46,14 @@ Rectangle {
                 isUnfold: true
                 panelFrameData: Component {
                     RenderSettings {
-                        anchors.left: parent.left 
-                        anchors.right: parent.right 
                     }
                 }
             }
             Prop.PropFolderPanel {
                 label: "Platform"
+                isUnfold: true
                 panelFrameData: Component {
                     Platform {
-                        anchors.left: parent.left 
-                        anchors.right: parent.right  
                     }
                 }
             }

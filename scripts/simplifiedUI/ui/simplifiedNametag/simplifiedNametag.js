@@ -8,8 +8,8 @@
 //
 //    Click on someone to get a nametag for them
 //    
-var PickRayController = Script.require('./resources/modules/pickRayController.js?' + Date.now());
-var NameTagListManager = Script.require('./resources/modules/nameTagListManager.js?' + Date.now());
+var PickRayController = Script.require('./resources/modules/pickRayController.js');
+var NameTagListManager = Script.require('./resources/modules/nameTagListManager.js');
 var pickRayController = new PickRayController();
 var nameTagListManager = new NameTagListManager();
 
@@ -31,6 +31,7 @@ function selectAvatar(uuid, intersection) {
 // Handles reset of list if you change domains
 function onDomainChange() {
     nameTagListManager.reset();
+    nameTagListManager.handleAvatarNametagMode(avatarNametagMode);
 }
 
 
@@ -46,20 +47,29 @@ function onAvatarAdded(uuid) {
 }
 
 
-// Called on init
+// Create a new nametag list manager, connect signals, and return back a new Nametag object.
 var avatarNametagMode;
-function create() {
+function startup() {
     nameTagListManager.create();
     handleAvatarNametagMode(Settings.getValue("simplifiedNametag/avatarNametagMode", "on"));
 
+    Script.scriptEnding.connect(unload);
     Window.domainChanged.connect(onDomainChange);
     AvatarManager.avatarRemovedEvent.connect(onAvatarRemoved);
     AvatarManager.avatarAddedEvent.connect(onAvatarAdded);
+
+    function NameTag() {}
+    
+    NameTag.prototype = {
+        handleAvatarNametagMode: handleAvatarNametagMode
+    };
+
+    return new NameTag();
 }
 
 
 // Called when the script is closing
-function destroy() {
+function unload() {
     nameTagListManager.destroy();
     pickRayController.destroy();
     Window.domainChanged.disconnect(onDomainChange);
@@ -76,20 +86,7 @@ function handleAvatarNametagMode(newAvatarNameTagMode) {
 }
 
 
-// *************************************
-// START api
-// *************************************
-// #region api
+var nameTag = startup();
 
+module.exports = nameTag;
 
-module.exports = {
-    create: create,
-    destroy: destroy,
-    handleAvatarNametagMode: handleAvatarNametagMode
-};
-
-
-// #endregion
-// *************************************
-// END api
-// *************************************

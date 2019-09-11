@@ -14,10 +14,10 @@
 #include <ScriptEngines.h>
 #include <OffscreenUi.h>
 #include <Preferences.h>
-#include <RenderShadowTask.h>
 #include <plugins/PluginUtils.h>
 #include <display-plugins/CompositorHelper.h>
-
+#include <display-plugins/hmd/HmdDisplayPlugin.h>
+#include "scripting/RenderScriptingInterface.h"
 #include "Application.h"
 #include "DialogsManager.h"
 #include "LODManager.h"
@@ -102,6 +102,22 @@ void setupPreferences() {
 
         preference->setItems(refreshRateProfiles);
         preferences->addPreference(preference);
+    }
+    {
+        // Expose the Viewport Resolution Scale
+        auto getter = []()->float {
+            return RenderScriptingInterface::getInstance()->getViewportResolutionScale();
+        };
+
+        auto setter = [](float value) {
+            RenderScriptingInterface::getInstance()->setViewportResolutionScale(value);
+        };
+
+        auto scaleSlider = new SliderPreference(GRAPHICS_QUALITY, "Resolution Scale", getter, setter);
+        scaleSlider->setMin(0.25f);
+        scaleSlider->setMax(1.0f);
+        scaleSlider->setStep(0.02f);
+        preferences->addPreference(scaleSlider);
     }
 
     // UI
@@ -360,6 +376,33 @@ void setupPreferences() {
         preference->setMax(30.0f);
         preference->setStep(1);
         preference->setDecimals(2);
+        preferences->addPreference(preference);
+    }
+    {
+        auto getter = []()->bool {
+            return qApp->getVisionSqueeze().getVisionSqueezeEnabled();
+        };
+        auto setter = [](bool value) {
+            qApp->getVisionSqueeze().setVisionSqueezeEnabled(value);
+        };
+        auto preference = new CheckPreference(VR_MOVEMENT, "Enable HMD Comfort Mode", getter, setter);
+        preferences->addPreference(preference);
+    }
+    {
+        const float sliderPositions = 5.0f;
+        auto getter = [sliderPositions]()->float {
+            return roundf(sliderPositions * qApp->getVisionSqueeze().getVisionSqueezeRatioX());
+        };
+        auto setter = [sliderPositions](float value) {
+            float ratio = value / sliderPositions;
+            qApp->getVisionSqueeze().setVisionSqueezeRatioX(ratio);
+            qApp->getVisionSqueeze().setVisionSqueezeRatioY(ratio);
+        };
+        auto preference = new SpinnerSliderPreference(VR_MOVEMENT, "Comfort Mode", getter, setter);
+        preference->setMin(0.0f);
+        preference->setMax(sliderPositions);
+        preference->setStep(1.0f);
+        preference->setDecimals(0);
         preferences->addPreference(preference);
     }
     {

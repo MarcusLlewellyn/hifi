@@ -25,8 +25,9 @@ class PolyLineEntityRenderer : public TypedEntityRenderer<PolyLineEntityItem> {
 public:
     PolyLineEntityRenderer(const EntityItemPointer& entity);
 
-    // FIXME: shouldn't always be transparent: take into account texture and glow
-    virtual bool isTransparent() const override { return true; }
+    void updateModelTransformAndBound() override;
+
+    virtual bool isTransparent() const override;
 
 protected:
     virtual bool needsRenderUpdate() const override;
@@ -55,7 +56,7 @@ protected:
     bool _faceCamera { false };
     bool _glow { false };
 
-    size_t _numVertices;
+    size_t _numVertices { 0 };
     gpu::BufferPointer _polylineDataBuffer;
     gpu::BufferPointer _polylineGeometryBuffer;
     static std::map<std::pair<render::Args::RenderMethod, bool>, gpu::PipelinePointer> _pipelines;

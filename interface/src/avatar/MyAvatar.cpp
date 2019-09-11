@@ -125,6 +125,27 @@ QString userRecenterModelToString(MyAvatar::SitStandModelType model) {
     }
 }
 
+static const QStringList TRIGGER_REACTION_NAMES = {
+    QString("positive"),
+    QString("negative")
+};
+
+static const QStringList BEGIN_END_REACTION_NAMES = {
+    QString("raiseHand"),
+    QString("applaud"),
+    QString("point")
+};
+
+static int triggerReactionNameToIndex(const QString& reactionName) {
+    assert(NUM_AVATAR_TRIGGER_REACTIONS == TRIGGER_REACTION_NAMES.size());
+    return TRIGGER_REACTION_NAMES.indexOf(reactionName);
+}
+
+static int beginEndReactionNameToIndex(const QString& reactionName) {
+    assert(NUM_AVATAR_BEGIN_END_REACTIONS == TRIGGER_REACTION_NAMES.size());
+    return BEGIN_END_REACTION_NAMES.indexOf(reactionName);
+}
+
 MyAvatar::MyAvatar(QThread* thread) :
     Avatar(thread),
     _yawSpeed(YAW_SPEED_DEFAULT),
@@ -712,7 +733,7 @@ void MyAvatar::update(float deltaTime) {
         // When needed and ready, arrange to check and fix.
         _physicsSafetyPending = false;
         if (_goToSafe) {
-            safeLanding(_goToPosition); // no-op if already safe
+            safeLanding(_goToPosition); // no-op if safeLanding logic determines already safe
         }
     }
 
@@ -1414,6 +1435,10 @@ void MyAvatar::setEnableDebugDrawAnimPose(bool isEnabled) {
     if (!isEnabled) {
         AnimDebugDraw::getInstance().removeAbsolutePoses("myAvatarAnimPoses");
     }
+}
+
+void MyAvatar::setDebugDrawAnimPoseName(QString poseName) {
+    _debugDrawAnimPoseName.set(poseName);
 }
 
 void MyAvatar::setEnableDebugDrawPosition(bool isEnabled) {
@@ -2488,12 +2513,12 @@ QVariantList MyAvatar::getAvatarEntitiesVariant() {
             QVariantMap avatarEntityData;
             avatarEntityData["id"] = entityID;
             EntityItemProperties entityProperties = entity->getProperties(desiredProperties);
-            QScriptValue scriptProperties;
             {
                 std::lock_guard<std::mutex> guard(_scriptEngineLock);
+                QScriptValue scriptProperties;
                 scriptProperties = EntityItemPropertiesToScriptValue(_scriptEngine, entityProperties);
+                avatarEntityData["properties"] = scriptProperties.toVariant();
             }
-            avatarEntityData["properties"] = scriptProperties.toVariant();
             avatarEntitiesData.append(QVariant(avatarEntityData));
         }
     }
@@ -2708,24 +2733,22 @@ void MyAvatar::nextAttitude(glm::vec3 position, glm::quat orientation) {
 void MyAvatar::harvestResultsFromPhysicsSimulation(float deltaTime) {
     glm::vec3 position;
     glm::quat orientation;
-    if (_characterController.isEnabledAndReady()) {
+    if (_characterController.isEnabledAndReady() && !(_characterController.needsSafeLandingSupport() || _goToPending)) {
         _characterController.getPositionAndOrientation(position, orientation);
+        setWorldVelocity(_characterController.getLinearVelocity() + _characterController.getFollowVelocity());
     } else {
         position = getWorldPosition();
         orientation = getWorldOrientation();
+        if (_characterController.needsSafeLandingSupport() && !_goToPending) {
+            _characterController.resetStuckCounter();
+            _physicsSafetyPending = true;
+            _goToSafe = true;
+            _goToPosition = position;
+        }
+        setWorldVelocity(getWorldVelocity() + _characterController.getFollowVelocity());
     }
     nextAttitude(position, orientation);
     _bodySensorMatrix = _follow.postPhysicsUpdate(*this, _bodySensorMatrix);
-
-    if (_characterController.isEnabledAndReady()) {
-        setWorldVelocity(_characterController.getLinearVelocity() + _characterController.getFollowVelocity());
-        if (_characterController.isStuck()) {
-            _physicsSafetyPending = true;
-            _goToPosition = getWorldPosition();
-        }
-    } else {
-        setWorldVelocity(getWorldVelocity() + _characterController.getFollowVelocity());
-    }
 }
 
 QString MyAvatar::getScriptedMotorFrame() const {
@@ -2747,19 +2770,23 @@ QString MyAvatar::getScriptedMotorMode() const {
 }
 
 void MyAvatar::setScriptedMotorVelocity(const glm::vec3& velocity) {
-    float MAX_SCRIPTED_MOTOR_SPEED = 500.0f;
-    _scriptedMotorVelocity = velocity;
-    float speed = glm::length(_scriptedMotorVelocity);
-    if (speed > MAX_SCRIPTED_MOTOR_SPEED) {
-        _scriptedMotorVelocity *= MAX_SCRIPTED_MOTOR_SPEED / speed;
+    float newSpeed = glm::length(velocity);
+    if (!glm::isnan(newSpeed)) {
+        _scriptedMotorVelocity = velocity;
+        constexpr float MAX_SCRIPTED_MOTOR_SPEED = 500.0f;
+        if (newSpeed > MAX_SCRIPTED_MOTOR_SPEED) {
+            _scriptedMotorVelocity *= MAX_SCRIPTED_MOTOR_SPEED / newSpeed;
+        }
     }
 }
 
 void MyAvatar::setScriptedMotorTimescale(float timescale) {
-    // we clamp the timescale on the large side (instead of just the low side) to prevent
-    // obnoxiously large values from introducing NaN into avatar's velocity
-    _scriptedMotorTimescale = glm::clamp(timescale, MIN_SCRIPTED_MOTOR_TIMESCALE,
-            DEFAULT_SCRIPTED_MOTOR_TIMESCALE);
+    if (!glm::isnan(timescale)) {
+        // we clamp the timescale on the large side (instead of just the low side) to prevent
+        // obnoxiously large values from introducing NaN into avatar's velocity
+        _scriptedMotorTimescale = glm::clamp(timescale, MIN_SCRIPTED_MOTOR_TIMESCALE,
+                DEFAULT_SCRIPTED_MOTOR_TIMESCALE);
+    }
 }
 
 void MyAvatar::setScriptedMotorFrame(QString frame) {
@@ -3086,15 +3113,26 @@ void MyAvatar::postUpdate(float deltaTime, const render::ScenePointer& scene) {
         }
 
         if (_enableDebugDrawAnimPose && animSkeleton) {
-            // build absolute AnimPoseVec from rig
+
             AnimPoseVec absPoses;
             const Rig& rig = _skeletonModel->getRig();
-            absPoses.reserve(rig.getJointStateCount());
-            for (int i = 0; i < rig.getJointStateCount(); i++) {
-                absPoses.push_back(AnimPose(rig.getJointTransform(i)));
+            const glm::vec4 CYAN(0.1f, 0.6f, 0.6f, 1.0f);
+
+            QString name = _debugDrawAnimPoseName.get();
+            if (name.isEmpty()) {
+                // build absolute AnimPoseVec from rig transforms. i.e. the same that are used for rendering.
+                absPoses.reserve(rig.getJointStateCount());
+                for (int i = 0; i < rig.getJointStateCount(); i++) {
+                    absPoses.push_back(AnimPose(rig.getJointTransform(i)));
+                }
+                AnimDebugDraw::getInstance().addAbsolutePoses("myAvatarAnimPoses", animSkeleton, absPoses, xform, CYAN);
+            } else {
+                AnimNode::ConstPointer node = rig.findAnimNodeByName(name);
+                if (node) {
+                    rig.buildAbsoluteRigPoses(node->getPoses(), absPoses);
+                    AnimDebugDraw::getInstance().addAbsolutePoses("myAvatarAnimPoses", animSkeleton, absPoses, xform, CYAN);
+                }
             }
-            glm::vec4 cyan(0.1f, 0.6f, 0.6f, 1.0f);
-            AnimDebugDraw::getInstance().addAbsolutePoses("myAvatarAnimPoses", animSkeleton, absPoses, xform, cyan);
         }
     }
 
@@ -3548,6 +3586,8 @@ void MyAvatar::updateActionMotor(float deltaTime) {
         float speedGrowthTimescale  = 2.0f;
         float speedIncreaseFactor = 1.8f * _walkSpeedScalar;
         motorSpeed *= 1.0f + glm::clamp(deltaTime / speedGrowthTimescale, 0.0f, 1.0f) * speedIncreaseFactor;
+        // use feedback from CharacterController to prevent tunneling under high motorspeed
+        motorSpeed *= _characterController.getCollisionBrakeAttenuationFactor();
         const float maxBoostSpeed = sensorToWorldScale * MAX_BOOST_SPEED;
 
         if (_isPushing) {
@@ -5793,6 +5833,67 @@ void MyAvatar::setModelScale(float scale) {
     }
 }
 
+QStringList MyAvatar::getBeginEndReactions() const {
+    return BEGIN_END_REACTION_NAMES;
+}
+
+QStringList MyAvatar::getTriggerReactions() const {
+    return TRIGGER_REACTION_NAMES;
+}
+
+bool MyAvatar::triggerReaction(QString reactionName) {
+    int reactionIndex = triggerReactionNameToIndex(reactionName);
+    if (reactionIndex >= 0 && reactionIndex < (int)NUM_AVATAR_TRIGGER_REACTIONS) {
+        std::lock_guard<std::mutex> guard(_reactionLock);
+        _reactionTriggers[reactionIndex] = true;
+        return true;
+    }
+    return false;
+}
+
+bool MyAvatar::beginReaction(QString reactionName) {
+    int reactionIndex = beginEndReactionNameToIndex(reactionName);
+    if (reactionIndex >= 0 && reactionIndex < (int)NUM_AVATAR_BEGIN_END_REACTIONS) {
+        std::lock_guard<std::mutex> guard(_reactionLock);
+        _reactionEnabledRefCounts[reactionIndex]++;
+        return true;
+    }
+    return false;
+}
+
+bool MyAvatar::endReaction(QString reactionName) {
+    int reactionIndex = beginEndReactionNameToIndex(reactionName);
+    if (reactionIndex >= 0 && reactionIndex < (int)NUM_AVATAR_BEGIN_END_REACTIONS) {
+        std::lock_guard<std::mutex> guard(_reactionLock);
+        if (_reactionEnabledRefCounts[reactionIndex] > 0) {
+            _reactionEnabledRefCounts[reactionIndex]--;
+            return true;
+        } else {
+            _reactionEnabledRefCounts[reactionIndex] = 0;
+            return false;
+        }
+    }
+    return false;
+}
+
+void MyAvatar::updateRigControllerParameters(Rig::ControllerParameters& params) {
+    std::lock_guard<std::mutex> guard(_reactionLock);
+
+    for (int i = 0; i < TRIGGER_REACTION_NAMES.size(); i++) {
+        params.reactionTriggers[i] = _reactionTriggers[i];
+    }
+
+    for (int i = 0; i < BEGIN_END_REACTION_NAMES.size(); i++) {
+        // copy current state into params.
+        params.reactionEnabledFlags[i] = _reactionEnabledRefCounts[i] > 0;
+    }
+
+    for (int i = 0; i < TRIGGER_REACTION_NAMES.size(); i++) {
+        // clear reaction triggers here as well
+        _reactionTriggers[i] = false;
+    }
+}
+
 SpatialParentTree* MyAvatar::getParentTree() const {
     auto entityTreeRenderer = qApp->getEntities();
     EntityTreePointer entityTree = entityTreeRenderer ? entityTreeRenderer->getTree() : nullptr;
@@ -6085,6 +6186,30 @@ QVariantList MyAvatar::getCollidingFlowJoints() {
     return result;
 }
 
+int MyAvatar::getOverrideJointCount() const {
+    if (_skeletonModel) {
+        return _skeletonModel->getRig().getOverrideJointCount();
+    } else {
+        return 0;
+    }
+}
+
+bool MyAvatar::getFlowActive() const {
+    if (_skeletonModel) {
+        return _skeletonModel->getRig().getFlowActive();
+    } else {
+        return false;
+    }
+}
+
+bool MyAvatar::getNetworkGraphActive() const {
+    if (_skeletonModel) {
+        return _skeletonModel->getRig().getNetworkGraphActive();
+    } else {
+        return false;
+    }
+}
+
 void MyAvatar::initFlowFromFST() {
     if (_skeletonModel->isLoaded()) {
         auto &flowData = _skeletonModel->getHFMModel().flowData;
@@ -6106,3 +6231,62 @@ void MyAvatar::sendPacket(const QUuid& entityID) const {
     }
 }
 
+void MyAvatar::setSitDriveKeysStatus(bool enabled) {
+    const std::vector<DriveKeys> DISABLED_DRIVE_KEYS_DURING_SIT = {
+        DriveKeys::TRANSLATE_X,
+        DriveKeys::TRANSLATE_Y,
+        DriveKeys::TRANSLATE_Z,
+        DriveKeys::STEP_TRANSLATE_X,
+        DriveKeys::STEP_TRANSLATE_Y,
+        DriveKeys::STEP_TRANSLATE_Z
+    };
+    for (auto key : DISABLED_DRIVE_KEYS_DURING_SIT) {
+        if (enabled) {
+            enableDriveKey(key);
+        } else {
+            disableDriveKey(key);
+        }
+    }
+}
+
+void MyAvatar::beginSit(const glm::vec3& position, const glm::quat& rotation) {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, "beginSit", Q_ARG(glm::vec3, position), Q_ARG(glm::quat, rotation));
+        return;
+    }
+
+    _characterController.setSeated(true);
+    setCollisionsEnabled(false);
+    setHMDLeanRecenterEnabled(false);
+    // Disable movement
+    setSitDriveKeysStatus(false);
+    centerBody();
+    int hipIndex = getJointIndex("Hips");
+    clearPinOnJoint(hipIndex);
+    pinJoint(hipIndex, position, rotation);
+}
+
+void MyAvatar::endSit(const glm::vec3& position, const glm::quat& rotation) {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, "endSit", Q_ARG(glm::vec3, position), Q_ARG(glm::quat, rotation));
+        return;
+    }
+
+    if (_characterController.getSeated()) {
+        clearPinOnJoint(getJointIndex("Hips"));
+        _characterController.setSeated(false);
+        setCollisionsEnabled(true);
+        setHMDLeanRecenterEnabled(true);
+        centerBody();
+        slamPosition(position);
+        setWorldOrientation(rotation);
+
+        // the jump key is used to exit the chair.  We add a delay here to prevent
+        // the avatar from jumping right as they exit the chair.
+        float TIME_BEFORE_DRIVE_ENABLED_MS = 150.0f;
+        QTimer::singleShot(TIME_BEFORE_DRIVE_ENABLED_MS, [this]() {
+            // Enable movement again
+            setSitDriveKeysStatus(true);
+        });
+    }
+}

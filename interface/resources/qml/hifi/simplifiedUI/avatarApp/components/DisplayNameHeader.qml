@@ -91,9 +91,11 @@ Item {
 
             SimplifiedControls.TextField {
                 id: myDisplayNameText
-                text: MyAvatar.sessionDisplayName === "" ? MyAvatar.displayName : MyAvatar.sessionDisplayName
+                rightGlyph: simplifiedUI.glyphs.pencil
+                text: MyAvatar.displayName
                 maximumLength: 256
                 clip: true
+                selectByMouse: true
                 anchors.fill: parent
                 onEditingFinished: {
                     if (MyAvatar.displayName !== text) {

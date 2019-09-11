@@ -167,7 +167,9 @@ bool PlatformInfoScriptingInterface::isStandalone() {
 int PlatformInfoScriptingInterface::getNumCPUs() {
     return platform::getNumCPUs();
 }
-
+int PlatformInfoScriptingInterface::getMasterCPU() {
+    return platform::getMasterCPU();
+}
 QString PlatformInfoScriptingInterface::getCPU(int index) {
     auto desc = platform::getCPU(index);
     return QString(desc.dump().c_str());
@@ -176,7 +178,9 @@ QString PlatformInfoScriptingInterface::getCPU(int index) {
 int PlatformInfoScriptingInterface::getNumGPUs() {
     return platform::getNumGPUs();
 }
-
+int PlatformInfoScriptingInterface::getMasterGPU() {
+    return platform::getMasterGPU();
+}
 QString PlatformInfoScriptingInterface::getGPU(int index) {
     auto desc = platform::getGPU(index);
     return QString(desc.dump().c_str());
@@ -185,14 +189,16 @@ QString PlatformInfoScriptingInterface::getGPU(int index) {
 int PlatformInfoScriptingInterface::getNumDisplays() {
     return platform::getNumDisplays();
 }
-
+int PlatformInfoScriptingInterface::getMasterDisplay() {
+    return platform::getMasterDisplay();
+}
 QString PlatformInfoScriptingInterface::getDisplay(int index) {
     auto desc = platform::getDisplay(index);
     return QString(desc.dump().c_str());
 }
 
 QString PlatformInfoScriptingInterface::getMemory() {
-    auto desc = platform::getMemory(0);
+    auto desc = platform::getMemory();
     return QString(desc.dump().c_str());
 }
 
@@ -201,6 +207,10 @@ QString PlatformInfoScriptingInterface::getComputer() {
     return QString(desc.dump().c_str());
 }
 
+QString PlatformInfoScriptingInterface::getPlatform() {
+    auto desc = platform::getAll();
+    return QString(desc.dump().c_str());
+}
 
 PlatformInfoScriptingInterface::PlatformTier PlatformInfoScriptingInterface::getTierProfiled() {
     return (PlatformInfoScriptingInterface::PlatformTier) platform::Profiler::profilePlatform();
@@ -211,4 +221,6 @@ QStringList PlatformInfoScriptingInterface::getPlatformTierNames() {
     return platformTierNames;
 }
 
-
+bool PlatformInfoScriptingInterface::isRenderMethodDeferredCapable() {
+    return platform::Profiler::isRenderMethodDeferredCapable();
+}

@@ -56,6 +56,7 @@ WindowScriptingInterface::WindowScriptingInterface() {
     });
 
     connect(qApp->getWindow(), &MainWindow::windowGeometryChanged, this, &WindowScriptingInterface::onWindowGeometryChanged);
+    connect(qApp->getWindow(), &MainWindow::windowMinimizedChanged, this, &WindowScriptingInterface::minimizedChanged);
     connect(qApp, &Application::interstitialModeChanged, [this] (bool interstitialMode) {
         emit interstitialModeChanged(interstitialMode);
     });
@@ -637,4 +638,14 @@ int WindowScriptingInterface::getActiveDisplayPlugin() {
 void WindowScriptingInterface::setActiveDisplayPlugin(int index) {
     auto name = PluginManager::getInstance()->getDisplayPlugins().at(index)->getName();
     qApp->setActiveDisplayPlugin(name);
+}
+
+void WindowScriptingInterface::openWebBrowser() {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(this, "openWebBrowser", Qt::QueuedConnection);
+        return;
+    }
+
+    auto offscreenUi = DependencyManager::get<OffscreenUi>();
+    offscreenUi->load("Browser.qml");
 }

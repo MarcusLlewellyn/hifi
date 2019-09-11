@@ -9,16 +9,18 @@
 //
 //  Helps manage the list of avatars added to the nametag list
 //
-
-var EntityMaker = Script.require('./entityMaker.js?' + Date.now());
-var entityProps = Script.require('./defaultLocalEntityProps.js?' + Date.now());
-var textHelper = new (Script.require('./textHelper.js?' + Date.now()));
+var EntityMaker = Script.require('./entityMaker.js');
+var entityProps = Script.require('./defaultLocalEntityProps.js');
+var textHelper = new (Script.require('./textHelper.js'));
 var X = 0;
 var Y = 1;
 var Z = 2;
 var HALF = 0.5;
 var CLEAR_ENTITY_EDIT_PROPS = true;
 var MILISECONDS_IN_SECOND = 1000;
+var SECONDS_IN_MINUTE = 60;
+// Delete after 5 minutes in case a nametag is hanging around in on mode 
+var ALWAYS_ON_MAX_LIFETIME_IN_SECONDS = 5 * SECONDS_IN_MINUTE;
 
 // *************************************
 // START UTILTY
@@ -57,9 +59,8 @@ var DISTANCE_SCALER_ALWAYS_ON = 0.45;
 var distanceScaler = DISTANCE_SCALER_ON;
 var userScaler = 1.0;
 var DEFAULT_LINE_HEIGHT = entityProps.lineHeight;
+var ADDITIONAL_PADDING = 1.06;
 function calculateInitialProperties(uuid) {
-    var avatar = _this.avatars[uuid];
-
     var adjustedScaler = null;
     var distance = null;
     var dimensions = null;
@@ -82,7 +83,7 @@ function calculateInitialProperties(uuid) {
     distanceScaler = avatarNametagMode === "on" ? DISTANCE_SCALER_ON : DISTANCE_SCALER_ALWAYS_ON;
     adjustedScaler = distance * distanceScaler;
     // Get the new dimensions from the text helper
-    dimensions = [textHelper.getTotalTextLength(), DEFAULT_LINE_HEIGHT, Z_SIZE];
+    dimensions = [textHelper.getTotalTextLength() * ADDITIONAL_PADDING, DEFAULT_LINE_HEIGHT, Z_SIZE];
     // Adjust the dimensions by the modified distance scaler
     scaledDimensions = Vec3.multiply(dimensions, adjustedScaler);
 
@@ -94,19 +95,6 @@ function calculateInitialProperties(uuid) {
         scaledDimensions: scaledDimensions,
         lineHeight: lineHeight
     };
-}
-
-
-// Used in alwaysOn mode to show or hide if they reached the max radius
-function showHide(uuid, type) {
-    var avatar = _this.avatars[uuid];
-    var nametag = avatar.nametag;
-
-    if (type === "show") {
-        nametag.show();
-    } else {
-        nametag.hide();
-    }
 }
 
 
@@ -168,6 +156,18 @@ function getDistance(uuid, checkAvatar, shouldSave) {
 }
 
 
+// Quick check for distance from avatar
+function quickDistanceCheckForNonSelectedAvatars(uuid) {
+    var source = MyAvatar.position;
+
+    var target = AvatarManager.getAvatar(uuid).position;
+
+    var avatarDistance = Vec3.distance(target, source);
+
+    return avatarDistance;
+}
+
+
 // Check to see if we need to toggle our interval check because we went to 0 avatars
 // or if we got our first avatar in the select list
 function shouldToggleInterval() {
@@ -197,7 +197,9 @@ function toggleInterval() {
 }
 
 
-// handle turning the peristenet mode on
+// Handle checking to see if we should add or delete nametags in persistent mode
+var alwaysOnAvatarDistanceCheck = false;
+var DISTANCE_CHECK_INTERVAL_MS = 1000;
 function handleAlwaysOnMode(shouldTurnOnAlwaysOnMode) {
     _this.reset();
     if (shouldTurnOnAlwaysOnMode) {
@@ -205,9 +207,23 @@ function handleAlwaysOnMode(shouldTurnOnAlwaysOnMode) {
             .getAvatarIdentifiers()
             .forEach(function (avatar) {
                 if (avatar) {
-                    add(avatar);
+                    var avatarDistance = quickDistanceCheckForNonSelectedAvatars(avatar);
+                    if (avatarDistance < MAX_RADIUS_IGNORE_METERS) {
+                        add(avatar);
+                    }
                 }
             });
+        maybeClearAlwaysOnAvatarDistanceCheck();
+        alwaysOnAvatarDistanceCheck = Script.setInterval(maybeAddOrRemoveIntervalCheck, DISTANCE_CHECK_INTERVAL_MS);
+    }
+}
+
+
+// Check to see if we need to clear the distance check in persistent mode
+function maybeClearAlwaysOnAvatarDistanceCheck() {
+    if (alwaysOnAvatarDistanceCheck) {
+        Script.clearInterval(alwaysOnAvatarDistanceCheck);
+        alwaysOnAvatarDistanceCheck = false;
     }
 }
 
@@ -238,11 +254,7 @@ function getCorrectName(uuid) {
     var avatar = _this.avatars[uuid];
     var avatarInfo = avatar.avatarInfo;
 
-    var displayNameToUse = avatarInfo.sessionDisplayName.trim();
-    
-    if (displayNameToUse === "") {
-        displayNameToUse = avatarInfo.displayName.trim();
-    }
+    var displayNameToUse = avatarInfo.displayName.trim();
 
     if (displayNameToUse === "") {
         displayNameToUse = "anonymous";
@@ -313,12 +325,6 @@ function makeNameTag(uuid) {
     var nameTagPosition = jointInObjectFrame.y + scaledDimenionsYHalf + ABOVE_HEAD_OFFSET;
     var localPosition = [0, nameTagPosition, 0];
 
-    var visible = true;
-    if (avatarNametagMode === "alwaysOn") {
-        var currentDistance = getDistance(uuid, CHECK_AVATAR, false);
-        visible = currentDistance > MAX_RADIUS_IGNORE_METERS ? false : true;
-    }
-
     nametag
         .add("leftMargin", lineHeight * LEFT_MARGIN_SCALER)
         .add("rightMargin", lineHeight * RIGHT_MARGIN_SCALER)
@@ -328,7 +334,6 @@ function makeNameTag(uuid) {
         .add("dimensions", scaledDimensions)
         .add("parentID", parentID)
         .add("localPosition", localPosition)
-        .add("visible", visible)
         .create(CLEAR_ENTITY_EDIT_PROPS);
 
     Script.setTimeout(function () {
@@ -336,26 +341,14 @@ function makeNameTag(uuid) {
     }, REDRAW_TIMEOUT_AMOUNT_MS);
 }
 
-
 // Check to see if the display named changed or if the distance is big enough to need a redraw.
 var MAX_RADIUS_IGNORE_METERS = 22;
 var MAX_ON_MODE_DISTANCE = 35;
-var CHECK_AVATAR = true;
-var MIN_DISTANCE = 0.2;
 function maybeRedraw(uuid) {
     var avatar = _this.avatars[uuid];
     getAvatarData(uuid);
 
     getDistance(uuid);
-    var avatarDistance = getDistance(uuid, CHECK_AVATAR, false);
-    if (avatarNametagMode === "alwaysOn" && avatarDistance > MAX_RADIUS_IGNORE_METERS) {
-        showHide(uuid, "hide");
-    }
-
-    if (avatarNametagMode === "alwaysOn" && avatarDistance < MAX_RADIUS_IGNORE_METERS) {
-        showHide(uuid, "show");
-    }
-
     var name = getCorrectName(uuid);
 
     if (avatar.previousName !== name) {
@@ -363,11 +356,35 @@ function maybeRedraw(uuid) {
     } else {
         redraw(uuid);
     }
+}
 
+
+// Check to see if we need to add or remove this avatar during always on mode
+function maybeAddOrRemoveIntervalCheck() {
+    AvatarManager
+        .getAvatarIdentifiers()
+        .forEach(function (avatar) {
+            if (avatar) {
+                var avatarDistance = quickDistanceCheckForNonSelectedAvatars(avatar);
+                if (avatar && avatarNametagMode === "alwaysOn" && !(avatar in _this.avatars) && avatarDistance < MAX_RADIUS_IGNORE_METERS) {
+                    add(avatar);
+                    return;
+                }
+                if (avatar in _this.avatars) {
+                    var entity = _this.avatars[avatar].nametag;
+                    var age = entity.get("age");
+                    entity.edit('lifetime', age + ALWAYS_ON_MAX_LIFETIME_IN_SECONDS);
+                }
+                if (avatarDistance > MAX_RADIUS_IGNORE_METERS) {
+                    maybeRemove(avatar);
+                }
+            }
+        });
 }
 
 
 // Handle redrawing if needed
+var MIN_DISTANCE = 0.1;
 function redraw(uuid) {
     var avatar = _this.avatars[uuid];
 
@@ -447,7 +464,7 @@ function add(uuid) {
 
     _this.selectedAvatars[uuid] = true;
     if (avatarNametagMode === "alwaysOn") {
-        entityProps.lifetime = -1;
+        entityProps.lifetime = ALWAYS_ON_MAX_LIFETIME_IN_SECONDS;
     } else {
         entityProps.lifetime = DEFAULT_LIFETIME;
     }
@@ -521,16 +538,20 @@ function removeNametag(uuid) {
 // #region API
 
 
-// Create the manager and hook up username signal
+// Create the manager.
 function create() {
+    if (avatarNametagMode === "alwaysOn") {
+        handleAvatarNametagMode("alwaysOn");
+    }
 
     return _this;
 }
 
 
-// Destory the manager and disconnect from username signal
+// Destroy the manager
 function destroy() {
     _this.reset();
+
     return _this;
 }
 
@@ -601,7 +622,9 @@ function maybeRemove(uuid) {
 
 // Check to see if we need to add this user to our list
 function maybeAdd(uuid) {
-    if (uuid && avatarNametagMode === "alwaysOn" && !(uuid in _this.avatars)) {
+    var avatarDistance = quickDistanceCheckForNonSelectedAvatars(uuid);
+
+    if (uuid && avatarNametagMode === "alwaysOn" && !(uuid in _this.avatars) && avatarDistance < MAX_RADIUS_IGNORE_METERS) {
         add(uuid);
     }
 }
@@ -628,6 +651,7 @@ function reset() {
     removeAllNametags();
     _this.avatars = {};
     shouldToggleInterval();
+    maybeClearAlwaysOnAvatarDistanceCheck();
 
     return _this;
 }

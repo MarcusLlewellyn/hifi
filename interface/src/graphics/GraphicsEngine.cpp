@@ -132,6 +132,10 @@ static const int THROTTLED_SIM_FRAME_PERIOD_MS = MSECS_PER_SECOND / THROTTLED_SI
 
 bool GraphicsEngine::shouldPaint() const {
     auto displayPlugin = qApp->getActiveDisplayPlugin();
+    if (!displayPlugin) {
+        // We're shutting down
+        return false;
+    }
 
 #ifdef DEBUG_PAINT_DELAY
         static uint64_t paintDelaySamples{ 0 };
@@ -175,6 +179,10 @@ void GraphicsEngine::render_performFrame() {
     {
         PROFILE_RANGE(render, "/getActiveDisplayPlugin");
         displayPlugin = qApp->getActiveDisplayPlugin();
+        if (!displayPlugin) {
+            // We're shutting down
+            return;
+        }
     }
 
     {
@@ -250,8 +258,9 @@ void GraphicsEngine::render_performFrame() {
             batch.setFramebuffer(finalFramebuffer);
             batch.enableSkybox(true);
             batch.enableStereo(isStereo);
+            batch.clearDepthStencilFramebuffer(1.0, 0);
             batch.setViewportTransform({ 0, 0, finalFramebuffer->getSize() });
-            _splashScreen->render(batch, viewFrustum);
+            _splashScreen->render(batch, viewFrustum, renderArgs._renderMethod == RenderArgs::RenderMethod::FORWARD);
         });
     } else {
         {

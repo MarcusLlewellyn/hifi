@@ -17,6 +17,7 @@
 #include <QtQml/QQmlEngine>
 #include <QtQml/QQmlContext>
 #include <QQuickView>
+#include <gl/GLHelpers.h>
 
 #include <PathUtils.h>
 
@@ -28,6 +29,7 @@ DockWidget::DockWidget(const QString& title, QWidget* parent) : QDockWidget(titl
     auto offscreenUi = DependencyManager::get<OffscreenUi>();
     auto qmlEngine = offscreenUi->getSurfaceContext()->engine();
     _quickView = std::shared_ptr<QQuickView>(new QQuickView(qmlEngine, nullptr), quickViewDeleter);
+    _quickView->setFormat(getDefaultOpenGLSurfaceFormat());
     QWidget* widget = QWidget::createWindowContainer(_quickView.get());
     setWidget(widget);
     QWidget* headerWidget = new QWidget();
@@ -44,4 +46,11 @@ QQuickItem* DockWidget::getRootItem() const {
 
 std::shared_ptr<QQuickView> DockWidget::getQuickView() const {
     return _quickView;
+}
+
+void DockWidget::resizeEvent(QResizeEvent* event) {
+    // This signal is currently handled in `InteractiveWindow.cpp`. There, it's used to
+    // emit a `windowGeometryChanged()` signal, which is handled by scripts
+    // that need to know when to change the position of their overlay UI elements.
+    emit onResizeEvent();
 }

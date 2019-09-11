@@ -20,28 +20,6 @@ var DEFAULT_SCRIPTS_PATH_PREFIX = ScriptDiscoveryService.defaultScriptsPath + "/
 // END CONFIG OPTIONS
 
 
-var DEFAULT_SCRIPTS_SEPARATE = [
-    DEFAULT_SCRIPTS_PATH_PREFIX + "system/controllers/controllerScripts.js"
-];
-function loadNewSeparateDefaults() {
-    for (var i in DEFAULT_SCRIPTS_SEPARATE) {
-        Script.load(DEFAULT_SCRIPTS_SEPARATE[i]);
-    }
-}
-
-
-var DEFAULT_SCRIPTS_COMBINED = [
-    DEFAULT_SCRIPTS_PATH_PREFIX + "system/request-service.js",
-    DEFAULT_SCRIPTS_PATH_PREFIX + "system/progress.js",
-    DEFAULT_SCRIPTS_PATH_PREFIX + "system/away.js"
-];
-function runNewDefaultsTogether() {
-    for (var i in DEFAULT_SCRIPTS_COMBINED) {
-        Script.include(DEFAULT_SCRIPTS_COMBINED[i]);
-    }
-}
-
-
 var MENU_NAMES = ["File", "Edit", "Display", "View", "Navigate", "Settings", "Developer", "Help"];
 var keepMenusSetting = Settings.getValue("simplifiedUI/keepMenus", false);
 function maybeRemoveDesktopMenu() {    
@@ -101,6 +79,12 @@ var AVATAR_APP_HEIGHT_PX = 615;
 var avatarAppWindow = false;
 var POPOUT_SAFE_MARGIN_X = 30;
 var POPOUT_SAFE_MARGIN_Y = 30;
+var AVATAR_APP_WINDOW_FLAGS = 0x00000001 | // Qt::Window
+    0x00001000 | // Qt::WindowTitleHint
+    0x00002000 | // Qt::WindowSystemMenuHint
+    0x08000000 | // Qt::WindowCloseButtonHint
+    0x00008000 | // Qt::WindowMaximizeButtonHint
+    0x00004000; // Qt::WindowMinimizeButtonHint
 function toggleAvatarApp() {
     if (avatarAppWindow) {
         avatarAppWindow.close();
@@ -121,7 +105,8 @@ function toggleAvatarApp() {
         position: {
             x: Math.max(Window.x + POPOUT_SAFE_MARGIN_X, Window.x + Window.innerWidth / 2 - AVATAR_APP_WIDTH_PX / 2),
             y: Math.max(Window.y + POPOUT_SAFE_MARGIN_Y, Window.y + Window.innerHeight / 2 - AVATAR_APP_HEIGHT_PX / 2)
-        }
+        },
+        overrideFlags: AVATAR_APP_WINDOW_FLAGS
     });
 
     avatarAppWindow.fromQml.connect(onMessageFromAvatarApp);
@@ -130,7 +115,7 @@ function toggleAvatarApp() {
 
 
 function handleAvatarNametagMode(newAvatarNametagMode) {
-    simplifiedNametag.handleAvatarNametagMode(newAvatarNametagMode);
+    nametag.handleAvatarNametagMode(newAvatarNametagMode);
 }
 
 
@@ -141,10 +126,13 @@ function onMessageFromSettingsApp(message) {
     }
 
     switch (message.method) {
+        /* 
+            This calls an update methon on the module apis because I can't get a signal from Settings.QML to the emoji.js without it being a module like
+            nametag.  
+        */
         case "handleAvatarNametagMode":
             handleAvatarNametagMode(message.avatarNametagMode);
             break;
-            
         default:
             console.log("Unrecognized message from " + SETTINGS_APP_MESSAGE_SOURCE + ": " + JSON.stringify(message));
             break;
@@ -166,6 +154,12 @@ var SETTINGS_APP_WINDOW_TITLE = "Settings";
 var SETTINGS_APP_PRESENTATION_MODE = Desktop.PresentationMode.NATIVE;
 var SETTINGS_APP_WIDTH_PX = 480;
 var SETTINGS_APP_HEIGHT_PX = 615;
+var SETTINGS_APP_WINDOW_FLAGS = 0x00000001 | // Qt::Window
+    0x00001000 | // Qt::WindowTitleHint
+    0x00002000 | // Qt::WindowSystemMenuHint
+    0x08000000 | // Qt::WindowCloseButtonHint
+    0x00008000 | // Qt::WindowMaximizeButtonHint
+    0x00004000; // Qt::WindowMinimizeButtonHint
 var settingsAppWindow = false;
 function toggleSettingsApp() {
     if (settingsAppWindow) {
@@ -187,11 +181,95 @@ function toggleSettingsApp() {
         position: {
             x: Math.max(Window.x + POPOUT_SAFE_MARGIN_X, Window.x + Window.innerWidth / 2 - SETTINGS_APP_WIDTH_PX / 2),
             y: Math.max(Window.y + POPOUT_SAFE_MARGIN_Y, Window.y + Window.innerHeight / 2 - SETTINGS_APP_HEIGHT_PX / 2)
-        }
+        },
+        overrideFlags: SETTINGS_APP_WINDOW_FLAGS
     });
 
     settingsAppWindow.fromQml.connect(onMessageFromSettingsApp);
     settingsAppWindow.closed.connect(onSettingsAppClosed);
+}
+
+
+function handleGoToAudioSettings() {
+    if (!settingsAppWindow) {
+        toggleSettingsApp();
+    }
+
+    settingsAppWindow.sendToQml({
+        "source": "simplifiedUI.js",
+        "method": "goToSettingsTab",
+        "data": {
+            "settingsTab": "audio"
+        }
+    });
+}
+
+
+var HELP_APP_MESSAGE_SOURCE = "HelpApp.qml";
+function onMessageFromHelpApp(message) {
+    if (message.source !== HELP_APP_MESSAGE_SOURCE) {
+        return;
+    }
+
+    switch (message.method) {
+        case "goToAudioSettings":
+            handleGoToAudioSettings();
+            break;
+
+        default:
+            console.log("Unrecognized message from " + HELP_APP_MESSAGE_SOURCE + ": " + JSON.stringify(message));
+            break;
+    }
+}
+
+
+function onHelpAppClosed() {
+    if (helpAppWindow) {
+        helpAppWindow.fromQml.disconnect(onMessageFromHelpApp);
+        helpAppWindow.closed.disconnect(onHelpAppClosed);
+    }
+    helpAppWindow = false;
+}
+
+
+var HELP_APP_QML_PATH = Script.resourcesPath() + "qml/hifi/simplifiedUI/helpApp/HelpApp.qml";
+var HELP_APP_WINDOW_TITLE = "Help";
+var HELP_APP_PRESENTATION_MODE = Desktop.PresentationMode.NATIVE;
+var HELP_APP_WIDTH_PX = 480;
+var HELP_APP_HEIGHT_PX = 615;
+var HELP_APP_WINDOW_FLAGS = 0x00000001 | // Qt::Window
+    0x00001000 | // Qt::WindowTitleHint
+    0x00002000 | // Qt::WindowSystemMenuHint
+    0x08000000 | // Qt::WindowCloseButtonHint
+    0x00008000 | // Qt::WindowMaximizeButtonHint
+    0x00004000; // Qt::WindowMinimizeButtonHint
+var helpAppWindow = false;
+function toggleHelpApp() {
+    if (helpAppWindow) {
+        helpAppWindow.close();
+        // This really shouldn't be necessary.
+        // This signal really should automatically be called by the signal handler set up below.
+        // But fixing that requires an engine change, so this workaround will do.
+        onHelpAppClosed();
+        return;
+    }
+
+    helpAppWindow = Desktop.createWindow(HELP_APP_QML_PATH, {
+        title: HELP_APP_WINDOW_TITLE,
+        presentationMode: HELP_APP_PRESENTATION_MODE,
+        size: {
+            x: HELP_APP_WIDTH_PX,
+            y: HELP_APP_HEIGHT_PX
+        },
+        position: {
+            x: Math.max(Window.x + POPOUT_SAFE_MARGIN_X, Window.x + Window.innerWidth / 2 - HELP_APP_WIDTH_PX / 2),
+            y: Math.max(Window.y + POPOUT_SAFE_MARGIN_Y, Window.y + Window.innerHeight / 2 - HELP_APP_HEIGHT_PX / 2)
+        },
+        overrideFlags: HELP_APP_WINDOW_FLAGS
+    });
+
+    helpAppWindow.fromQml.connect(onMessageFromHelpApp);
+    helpAppWindow.closed.connect(onHelpAppClosed);
 }
 
 
@@ -304,7 +382,6 @@ function onMessageFromTopBar(message) {
     if (message.source !== TOP_BAR_MESSAGE_SOURCE) {
         return;
     }
-
     switch (message.method) {
         case "toggleAvatarApp":
             toggleAvatarApp();
@@ -312,6 +389,10 @@ function onMessageFromTopBar(message) {
 
         case "toggleSettingsApp":
             toggleSettingsApp();
+            break;
+
+        case "toggleHelpApp":
+            toggleHelpApp();
             break;
 
         case "setOutputMuted":
@@ -384,21 +465,6 @@ function loadSimplifiedTopBar() {
 }
 
 
-var pausedScriptList = [];
-var SCRIPT_NAME_WHITELIST = ["simplifiedUI.js", "statusIndicator.js"];
-function pauseCurrentScripts() {
-    var currentlyRunningScripts = ScriptDiscoveryService.getRunning();
-    
-    for (var i = 0; i < currentlyRunningScripts.length; i++) {
-        var currentScriptObject = currentlyRunningScripts[i];
-        if (SCRIPT_NAME_WHITELIST.indexOf(currentScriptObject.name) === -1) {
-            ScriptDiscoveryService.stopScript(currentScriptObject.url);
-            pausedScriptList.push(currentScriptObject.url);
-        }
-    }
-}
-
-
 function maybeDeleteInputDeviceMutedOverlay() {
     if (inputDeviceMutedOverlay) {
         Overlays.deleteOverlay(inputDeviceMutedOverlay);
@@ -415,7 +481,7 @@ function getInputDeviceMutedOverlayTopY() {
 var inputDeviceMutedOverlay = false;
 var INPUT_DEVICE_MUTED_OVERLAY_DEFAULT_X_PX = 353;
 var INPUT_DEVICE_MUTED_OVERLAY_DEFAULT_Y_PX = 95;
-var INPUT_DEVICE_MUTED_MARGIN_BOTTOM_PX = 20;
+var INPUT_DEVICE_MUTED_MARGIN_BOTTOM_PX = 20 + TOP_BAR_HEIGHT_PX;
 function updateInputDeviceMutedOverlay(isMuted) {
     if (isMuted) {
         var props = {
@@ -438,7 +504,16 @@ function updateInputDeviceMutedOverlay(isMuted) {
 
 
 function onDesktopInputDeviceMutedChanged(isMuted) {
-    updateInputDeviceMutedOverlay(isMuted);
+    if (!HMD.active) {
+        updateInputDeviceMutedOverlay(isMuted);
+    }
+}
+
+
+function onHMDInputDeviceMutedChanged(isMuted) {
+    if (HMD.active) {
+        updateInputDeviceMutedOverlay(isMuted);
+    }
 }
 
 
@@ -457,9 +532,24 @@ function onGeometryChanged(rect) {
     }
 }
 
-function ensureFirstPersonCameraInHMD(isHMDMode) {
+function onDisplayModeChanged(isHMDMode) {
     if (isHMDMode) {
         Camera.setModeString("first person");
+    }
+
+    if (isHMDMode) {
+        onHMDInputDeviceMutedChanged(Audio.mutedHMD);
+    } else {
+        onDesktopInputDeviceMutedChanged(Audio.mutedDesktop);
+    }
+}
+
+function onToolbarVisibleChanged(isVisible, toolbarName) {
+    if (isVisible && toolbarName == TOOLBAR_NAME && !Settings.getValue("simplifiedUI/keepExistingUIAndScripts", false)) {
+        var toolbar = Toolbars.getToolbar(toolbarName);
+        if (toolbar) {
+            toolbar.writeProperty("visible", false);
+        }
     }
 }
 
@@ -474,42 +564,60 @@ function maybeUpdateOutputDeviceMutedOverlay() {
 }
 
 
-var simplifiedNametag = Script.require("./simplifiedNametag/simplifiedNametag.js?" + Date.now());
-var SimplifiedStatusIndicator = Script.require("./simplifiedStatusIndicator/simplifiedStatusIndicator.js?" + Date.now());
-var si;
+var oldAutomaticLODAdjust;
+var oldLODAngleDeg;
+var SIMPLIFIED_UI_AUTO_LOD_ADJUST = false;
+var SIMPLIFIED_UI_LOD_ANGLE_DEG = 0.248;
+function modifyLODSettings() {
+    oldAutomaticLODAdjust = LODManager.automaticLODAdjust;
+    oldLODAngleDeg = LODManager.lodAngleDeg;
+
+    LODManager.automaticLODAdjust = SIMPLIFIED_UI_AUTO_LOD_ADJUST;
+    LODManager.lodAngleDeg = SIMPLIFIED_UI_LOD_ANGLE_DEG;
+}
+
+
+function restoreLODSettings() {
+    LODManager.automaticLODAdjust = oldAutomaticLODAdjust;
+    LODManager.lodAngleDeg = oldLODAngleDeg;
+}
+
+
+var nametag = Script.require("./simplifiedNametag/simplifiedNametag.js?" + Date.now());
+var si = Script.require("./simplifiedStatusIndicator/simplifiedStatusIndicator.js?" + Date.now());
+var emote = Script.require("../simplifiedEmote/simplifiedEmote.js?" + Date.now());
 var oldShowAudioTools;
 var oldShowBubbleTools;
 var keepExistingUIAndScriptsSetting = Settings.getValue("simplifiedUI/keepExistingUIAndScripts", false);
 function startup() {
     maybeRemoveDesktopMenu();
+    modifyLODSettings();
 
     if (!keepExistingUIAndScriptsSetting) {
-        pauseCurrentScripts();
-        runNewDefaultsTogether();
-        loadNewSeparateDefaults();
-
         if (!HMD.active) {
             var toolbar = Toolbars.getToolbar(TOOLBAR_NAME);
-            toolbar.writeProperty("visible", false);
+            if (toolbar) {
+                toolbar.writeProperty("visible", false);
+            }
         }
     }
 
     loadSimplifiedTopBar();
 
-    simplifiedNametag.create();
-    si = new SimplifiedStatusIndicator({
-        statusChanged: onStatusChanged
-    });
-    si.startup();
+    
+    si.updateProperties({ statusChanged: onStatusChanged });
+
     updateInputDeviceMutedOverlay(Audio.muted);
     updateOutputDeviceMutedOverlay(isOutputMuted());
     Audio.mutedDesktopChanged.connect(onDesktopInputDeviceMutedChanged);
+    Audio.mutedHMDChanged.connect(onHMDInputDeviceMutedChanged);
     Window.geometryChanged.connect(onGeometryChanged);
-    HMD.displayModeChanged.connect(ensureFirstPersonCameraInHMD);
+    HMD.displayModeChanged.connect(onDisplayModeChanged);
     Audio.avatarGainChanged.connect(maybeUpdateOutputDeviceMutedOverlay);
     Audio.localInjectorGainChanged.connect(maybeUpdateOutputDeviceMutedOverlay);
     Audio.serverInjectorGainChanged.connect(maybeUpdateOutputDeviceMutedOverlay);
     Audio.systemInjectorGainChanged.connect(maybeUpdateOutputDeviceMutedOverlay);
+    Toolbars.toolbarVisibleChanged.connect(onToolbarVisibleChanged);
 
     oldShowAudioTools = AvatarInputs.showAudioTools;
     AvatarInputs.showAudioTools = false;
@@ -518,24 +626,16 @@ function startup() {
 }
 
 
-function restoreScripts() {
-    pausedScriptList.forEach(function(url) {
-        ScriptDiscoveryService.loadScript(url);
-    });
-
-    pausedScriptList = [];
-}
-
-
 function shutdown() {
-    restoreScripts();
+    restoreLODSettings();
 
     if (!keepExistingUIAndScriptsSetting) {
-        console.log("The Simplified UI script has been shut down. If you notice any strangeness with user interface, please restart this application.");
 
         if (!HMD.active) {
             var toolbar = Toolbars.getToolbar(TOOLBAR_NAME);
-            toolbar.writeProperty("visible", true);
+            if (toolbar) {
+                toolbar.writeProperty("visible", true);
+            }
         }
     }
     
@@ -554,16 +654,15 @@ function shutdown() {
     maybeDeleteInputDeviceMutedOverlay();
     maybeDeleteOutputDeviceMutedOverlay();
 
-    simplifiedNametag.destroy();
-    si.unload();
-
     Audio.mutedDesktopChanged.disconnect(onDesktopInputDeviceMutedChanged);
+    Audio.mutedHMDChanged.disconnect(onHMDInputDeviceMutedChanged);
     Window.geometryChanged.disconnect(onGeometryChanged);
-    HMD.displayModeChanged.disconnect(ensureFirstPersonCameraInHMD);
+    HMD.displayModeChanged.disconnect(onDisplayModeChanged);
     Audio.avatarGainChanged.disconnect(maybeUpdateOutputDeviceMutedOverlay);
     Audio.localInjectorGainChanged.disconnect(maybeUpdateOutputDeviceMutedOverlay);
     Audio.serverInjectorGainChanged.disconnect(maybeUpdateOutputDeviceMutedOverlay);
     Audio.systemInjectorGainChanged.disconnect(maybeUpdateOutputDeviceMutedOverlay);
+    Toolbars.toolbarVisibleChanged.disconnect(onToolbarVisibleChanged);
 
     AvatarInputs.showAudioTools = oldShowAudioTools;
     AvatarInputs.showBubbleTools = oldShowBubbleTools;

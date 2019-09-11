@@ -9,6 +9,7 @@
 //
 
 import QtQuick 2.10
+import QtQuick.Controls 2.3
 import "../../simplifiedConstants" as SimplifiedConstants
 import "../../simplifiedControls" as SimplifiedControls
 import stylesUit 1.0 as HifiStylesUit
@@ -20,8 +21,6 @@ Flickable {
     id: root
     contentWidth: parent.width
     contentHeight: generalColumnLayout.height
-    topMargin: 24
-    bottomMargin: 24
     clip: true
 
     onAvatarNametagModeChanged: {
@@ -31,7 +30,7 @@ Flickable {
     onVisibleChanged: {
         if (visible) {
             root.contentX = 0;
-            root.contentY = -root.topMargin;
+            root.contentY = 0;
         }
     }
 
@@ -39,22 +38,41 @@ Flickable {
         id: simplifiedUI
     }
 
+
+    Image {
+        id: accent
+        source: "../images/accent1.svg"
+        anchors.left: parent.left
+        anchors.top: parent.top
+        width: 83
+        height: 156
+        transform: Scale {
+            xScale: -1
+            origin.x: accent.width / 2
+            origin.y: accent.height / 2
+        }
+    }
+
+
     ColumnLayout {
         id: generalColumnLayout
         anchors.left: parent.left
+        anchors.leftMargin: 26
         anchors.right: parent.right
+        anchors.rightMargin: 26
         anchors.top: parent.top
         spacing: simplifiedUI.margins.settings.spacingBetweenSettings
 
         ColumnLayout {
             id: avatarNameTagsContainer
             Layout.preferredWidth: parent.width
+            Layout.topMargin: 24
             spacing: 0
 
-            HifiStylesUit.GraphikRegular {
+            HifiStylesUit.GraphikSemiBold {
                 id: avatarNameTagsTitle
                 text: "Avatar Name Tags"
-                Layout.maximumWidth: parent.width
+                Layout.preferredWidth: parent.width
                 height: paintedHeight
                 size: 22
                 color: simplifiedUI.colors.text.white
@@ -95,14 +113,57 @@ Flickable {
         }
 
         ColumnLayout {
+            id: emoteContainer
+            Layout.preferredWidth: parent.width
+            spacing: 0
+
+            HifiStylesUit.GraphikSemiBold {
+                    id: emoteTitle
+                    text: "Emote UI"
+                    Layout.maximumWidth: parent.width
+                    height: paintedHeight
+                    size: 22
+                    color: simplifiedUI.colors.text.white
+                }
+
+            ColumnLayout {
+                id: emoteSwitchGroup
+                Layout.preferredWidth: parent.width
+                Layout.topMargin: simplifiedUI.margins.settings.settingsGroupTopMargin
+
+                SimplifiedControls.Switch {
+                    id: emoteSwitch
+                    Layout.preferredHeight: 18
+                    Layout.preferredWidth: parent.width
+                    labelTextOn: "Show Emote UI"
+                    checked: Settings.getValue("simplifiedUI/allowEmoteDrawerExpansion", true)
+                    onClicked: {
+                        var currentSetting = Settings.getValue("simplifiedUI/allowEmoteDrawerExpansion", true);
+                        Settings.setValue("simplifiedUI/allowEmoteDrawerExpansion", !currentSetting);
+                    }                    
+
+                    Connections {
+                        target: Settings
+
+                        onValueChanged: {
+                            if (setting === "simplifiedUI/allowEmoteDrawerExpansion") {
+                                emoteSwitch.checked = value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ColumnLayout {
             id: performanceContainer
             Layout.preferredWidth: parent.width
             spacing: 0
 
-            HifiStylesUit.GraphikRegular {
+            HifiStylesUit.GraphikSemiBold {
                 id: performanceTitle
-                text: "Graphics Preset"
-                Layout.maximumWidth: parent.width
+                text: "Graphics Settings"
+                Layout.preferredWidth: parent.width
                 height: paintedHeight
                 size: 22
                 color: simplifiedUI.colors.text.white
@@ -115,7 +176,7 @@ Flickable {
 
                 SimplifiedControls.RadioButton {
                     id: performanceLow
-                    text: "Low"
+                    text: "Low Quality" + (PlatformInfo.getTierProfiled() === PerformanceEnums.LOW ? " (Recommended)" : "")
                     checked: Performance.getPerformancePreset() === PerformanceEnums.LOW
                     onClicked: {
                         Performance.setPerformancePreset(PerformanceEnums.LOW);
@@ -124,7 +185,7 @@ Flickable {
 
                 SimplifiedControls.RadioButton {
                     id: performanceMedium
-                    text: "Medium"
+                    text: "Medium Quality" + (PlatformInfo.getTierProfiled() === PerformanceEnums.MID ? " (Recommended)" : "")
                     checked: Performance.getPerformancePreset() === PerformanceEnums.MID
                     onClicked: {
                         Performance.setPerformancePreset(PerformanceEnums.MID);
@@ -133,7 +194,7 @@ Flickable {
 
                 SimplifiedControls.RadioButton {
                     id: performanceHigh
-                    text: "High"
+                    text: "High Quality" + (PlatformInfo.getTierProfiled() === PerformanceEnums.HIGH ? " (Recommended)" : "")
                     checked: Performance.getPerformancePreset() === PerformanceEnums.HIGH
                     onClicked: {
                         Performance.setPerformancePreset(PerformanceEnums.HIGH);
@@ -147,10 +208,10 @@ Flickable {
             Layout.preferredWidth: parent.width
             spacing: 0
 
-            HifiStylesUit.GraphikRegular {
+            HifiStylesUit.GraphikSemiBold {
                 id: cameraTitle
                 text: "Camera View"
-                Layout.maximumWidth: parent.width
+                Layout.preferredWidth: parent.width
                 height: paintedHeight
                 size: 22
                 color: simplifiedUI.colors.text.white
@@ -179,7 +240,7 @@ Flickable {
                     }
                 }
                 
-              Connections {
+                Connections {
                     target: Camera
 
                     onModeUpdated: {
@@ -189,33 +250,40 @@ Flickable {
                             thirdPerson.checked = true
                         }
                     }
-              }
+                }
             }
         }
 
-        HifiStylesUit.GraphikRegular {
-            id: logoutText
-            text: (AccountServices.username === "Unknown user" ? "Log In" : "Logout " + AccountServices.username)
-            wrapMode: Text.Wrap
-            width: paintedWidth
-            height: paintedHeight
-            size: 22
-            color: simplifiedUI.colors.text.lightBlue
+        ColumnLayout {
+            id: logoutContainer
+            Layout.preferredWidth: parent.width
+            Layout.bottomMargin: 24
+            spacing: 0
 
-            MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                onEntered: {
-                    parent.color = simplifiedUI.colors.text.lightBlueHover;
-                }
-                onExited: {
-                    parent.color = simplifiedUI.colors.text.lightBlue;
-                }
-                onClicked: {
-                    if (Account.loggedIn) {
-                        AccountServices.logOut();
-                    } else {
-                        DialogsManager.showLoginDialog();
+            HifiStylesUit.GraphikRegular {
+                id: logoutText
+                text: (AccountServices.username === "Unknown user" ? "Log In" : "Logout " + AccountServices.username)
+                wrapMode: Text.Wrap
+                width: paintedWidth
+                height: paintedHeight
+                size: 14
+                color: simplifiedUI.colors.text.lightBlue
+
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onEntered: {
+                        parent.color = simplifiedUI.colors.text.lightBlueHover;
+                    }
+                    onExited: {
+                        parent.color = simplifiedUI.colors.text.lightBlue;
+                    }
+                    onClicked: {
+                        if (Account.loggedIn) {
+                            AccountServices.logOut();
+                        } else {
+                            DialogsManager.showLoginDialog();
+                        }
                     }
                 }
             }
@@ -223,4 +291,5 @@ Flickable {
     }
 
     signal sendNameTagInfo(var message);
+    signal sendEmoteVisible(var message);
 }

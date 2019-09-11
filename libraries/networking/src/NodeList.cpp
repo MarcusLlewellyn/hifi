@@ -26,6 +26,8 @@
 #include <ThreadHelpers.h>
 #include <LogHandler.h>
 #include <UUID.h>
+#include <platform/Platform.h>
+#include <platform/PlatformKeys.h>
 
 #include "AccountManager.h"
 #include "AddressManager.h"
@@ -42,6 +44,7 @@
 using namespace std::chrono;
 
 const int KEEPALIVE_PING_INTERVAL_MS = 1000;
+const int MAX_SYSTEM_INFO_SIZE = 1000;
 
 NodeList::NodeList(char newOwnerType, int socketListenPort, int dtlsListenPort) :
     LimitedNodeList(socketListenPort, dtlsListenPort),
@@ -112,6 +115,12 @@ NodeList::NodeList(char newOwnerType, int socketListenPort, int dtlsListenPort) 
     connect(&_keepAlivePingTimer, &QTimer::timeout, this, &NodeList::sendKeepAlivePings);
     connect(&_domainHandler, SIGNAL(connectedToDomain(QUrl)), &_keepAlivePingTimer, SLOT(start()));
     connect(&_domainHandler, &DomainHandler::disconnectedFromDomain, &_keepAlivePingTimer, &QTimer::stop);
+
+    connect(&_domainHandler, &DomainHandler::limitOfSilentDomainCheckInsReached, this, [this]() {
+        if (_connectReason != Awake) {
+            _connectReason = SilentDomainDisconnect;
+        }
+    });
 
     // set our sockAddrBelongsToDomainOrNode method as the connection creation filter for the udt::Socket
     using std::placeholders::_1;
@@ -254,8 +263,7 @@ void NodeList::reset(QString reason, bool skipDomainHandlerReset) {
                                   Q_ARG(bool, skipDomainHandlerReset));
         return;
     }
-
-    LimitedNodeList::reset();
+    LimitedNodeList::reset(reason);
 
     // lock and clear our set of ignored IDs
     _ignoredSetLock.lockForWrite();
@@ -304,7 +312,8 @@ void NodeList::sendDomainServerCheckIn() {
     // may be called by multiple threads.
 
     if (!_sendDomainServerCheckInEnabled) {
-        qCDebug(networking_ice) << "Refusing to send a domain-server check in while it is disabled.";
+        static const QString DISABLED_CHECKIN_DEBUG{ "Refusing to send a domain-server check in while it is disabled." };
+        HIFI_FCDEBUG(networking_ice(), DISABLED_CHECKIN_DEBUG);
         return;
     }
 
@@ -331,7 +340,8 @@ void NodeList::sendDomainServerCheckIn() {
 
         if (!domainIsConnected) {
             auto hostname = _domainHandler.getHostname();
-            qCDebug(networking_ice) << "Sending connect request to domain-server at" << hostname;
+            QMetaEnum metaEnum = QMetaEnum::fromType<LimitedNodeList::ConnectReason>();
+            qCDebug(networking_ice) << "Sending connect request ( REASON:" << QString(metaEnum.valueToKey(_connectReason)) << ") to domain-server at" << hostname;
 
             // is this our localhost domain-server?
             // if so we need to make sure we have an up-to-date local port in case it restarted
@@ -414,6 +424,39 @@ void NodeList::sendDomainServerCheckIn() {
             // now add the machine fingerprint
             auto accountManager = DependencyManager::get<AccountManager>();
             packetStream << FingerprintUtils::getMachineFingerprint();
+
+            platform::json all = platform::getAll();
+            platform::json desc;
+            // only pull out those items that will fit within a packet
+            desc[platform::keys::COMPUTER] = all[platform::keys::COMPUTER];
+            desc[platform::keys::MEMORY] = all[platform::keys::MEMORY];
+            desc[platform::keys::CPUS] = all[platform::keys::CPUS];
+            desc[platform::keys::GPUS] = all[platform::keys::GPUS];
+            desc[platform::keys::DISPLAYS] = all[platform::keys::DISPLAYS];
+            desc[platform::keys::NICS] = all[platform::keys::NICS];
+
+            QByteArray systemInfo(desc.dump().c_str());
+            QByteArray compressedSystemInfo = qCompress(systemInfo);
+
+            if (compressedSystemInfo.size() > MAX_SYSTEM_INFO_SIZE) {
+                // Highly unlikely, as not even unreasonable machines will
+                // overflow the max size, but prevent MTU overflow anyway.
+                // We could do something sophisticated like clearing specific
+                // values if they're too big, but we'll save that for later.
+                compressedSystemInfo.clear();
+            }
+
+            packetStream << compressedSystemInfo;
+
+            packetStream << _connectReason;
+
+            if (_nodeDisconnectTimestamp < _nodeConnectTimestamp) {
+                _nodeDisconnectTimestamp = usecTimestampNow();
+            }
+            quint64 previousConnectionUptime = _nodeConnectTimestamp ? _nodeDisconnectTimestamp - _nodeConnectTimestamp : 0;
+
+            packetStream << previousConnectionUptime;
+
         }
 
         packetStream << quint64(duration_cast<microseconds>(system_clock::now().time_since_epoch()).count());
@@ -439,6 +482,7 @@ void NodeList::sendDomainServerCheckIn() {
         // Send duplicate check-ins in the exponentially increasing sequence 1, 1, 2, 4, ...
         static const int MAX_CHECKINS_TOGETHER = 20;
         int outstandingCheckins = _domainHandler.getCheckInPacketsSinceLastReply();
+
         int checkinCount = outstandingCheckins > 1 ? std::pow(2, outstandingCheckins - 2) : 1;
         checkinCount = std::min(checkinCount, MAX_CHECKINS_TOGETHER);
         for (int i = 1; i < checkinCount; ++i) {
@@ -660,6 +704,14 @@ void NodeList::processDomainServerList(QSharedPointer<ReceivedMessage> message) 
     quint64 domainServerCheckinProcessingTime;
     packetStream >> domainServerCheckinProcessingTime;
 
+    bool newConnection;
+    packetStream >> newConnection;
+
+    if (newConnection) {
+        _nodeConnectTimestamp = usecTimestampNow();
+        _connectReason = Connect;
+    }
+
     qint64 pingLagTime = (now - qint64(connectRequestTimestamp)) / qint64(USECS_PER_MSEC);
 
     qint64 domainServerRequestLag = (qint64(domainServerPingSendTime - domainServerCheckinProcessingTime) - qint64(connectRequestTimestamp)) / qint64(USECS_PER_MSEC);;
@@ -673,13 +725,6 @@ void NodeList::processDomainServerList(QSharedPointer<ReceivedMessage> message) 
         // refuse to process this packet if we aren't currently connected to the DS
         return;
     }
-#ifdef DEBUG_EVENT_QUEUE
-    {
-        int nodeListQueueSize = ::hifi::qt::getEventQueueSize(thread());
-        qCDebug(networking) << "DomainList received, pending count =" << _domainHandler.getCheckInPacketsSinceLastReply()
-            << "NodeList thread event queue size =" << nodeListQueueSize;
-    }
-#endif
 
     // warn if ping lag is getting long
     if (pingLagTime > qint64(MSECS_PER_SECOND)) {
@@ -691,6 +736,7 @@ void NodeList::processDomainServerList(QSharedPointer<ReceivedMessage> message) 
 
     // this is a packet from the domain server, reset the count of un-replied check-ins
     _domainHandler.clearPendingCheckins();
+    setDropOutgoingNodeTraffic(false);
 
     // emit our signal so listeners know we just heard from the DS
     emit receivedDomainServerList();
@@ -1105,6 +1151,10 @@ void NodeList::maybeSendIgnoreSetToNode(SharedNodePointer newNode) {
 }
 
 void NodeList::setAvatarGain(const QUuid& nodeID, float gain) {
+    if (nodeID.isNull()) {
+        _avatarGain = gain;
+    }
+
     // cannot set gain of yourself
     if (getSessionUUID() != nodeID) {
         auto audioMixer = soloNodeOfType(NodeType::AudioMixer);
@@ -1122,7 +1172,6 @@ void NodeList::setAvatarGain(const QUuid& nodeID, float gain) {
                 qCDebug(networking) << "Sending Set MASTER Avatar Gain packet with Gain:" << gain;
 
                 sendPacket(std::move(setAvatarGainPacket), *audioMixer);
-                _avatarGain = gain;
 
             } else {
                 qCDebug(networking) << "Sending Set Avatar Gain packet with UUID:" << uuidStringWithoutCurlyBraces(nodeID) << "Gain:" << gain;
@@ -1154,6 +1203,8 @@ float NodeList::getAvatarGain(const QUuid& nodeID) {
 }
 
 void NodeList::setInjectorGain(float gain) {
+    _injectorGain = gain;
+
     auto audioMixer = soloNodeOfType(NodeType::AudioMixer);
     if (audioMixer) {
         // setup the packet
@@ -1165,7 +1216,6 @@ void NodeList::setInjectorGain(float gain) {
         qCDebug(networking) << "Sending Set Injector Gain packet with Gain:" << gain;
 
         sendPacket(std::move(setInjectorGainPacket), *audioMixer);
-        _injectorGain = gain;
 
     } else {
         qWarning() << "Couldn't find audio mixer to send set gain request";

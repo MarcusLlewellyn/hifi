@@ -23,7 +23,7 @@ static uint8_t CUSTOM_PIPELINE_NUMBER = 0;
 static gpu::Stream::FormatPointer _vertexFormat;
 static std::weak_ptr<gpu::Pipeline> _texturedPipeline;
 
-static ShapePipelinePointer shapePipelineFactory(const ShapePlumber& plumber, const ShapeKey& key, gpu::Batch& batch) {
+static ShapePipelinePointer shapePipelineFactory(const ShapePlumber& plumber, const ShapeKey& key, RenderArgs* args) {
     auto texturedPipeline = _texturedPipeline.lock();
     if (!texturedPipeline) {
         auto state = std::make_shared<gpu::State>();
@@ -62,32 +62,6 @@ ParticleEffectEntityRenderer::ParticleEffectEntityRenderer(const EntityItemPoint
         _vertexFormat->setAttribute(gpu::Stream::COLOR, 0, gpu::Element::VEC2F_UV,
             offsetof(GpuParticle, uv), gpu::Stream::PER_INSTANCE);
     });
-}
-
-bool ParticleEffectEntityRenderer::needsRenderUpdateFromTypedEntity(const TypedEntityPointer& entity) const {
-    entity->updateQueryAACube();
-
-    if (_emitting != entity->getIsEmitting()) {
-        return true;
-    }
-
-    if (_particleProperties != entity->getParticleProperties()) {
-        return true;
-    }
-
-    if (_pulseProperties != entity->getPulseProperties()) {
-        return true;
-    }
-
-    if (_shapeType != entity->getShapeType()) {
-        return true;
-    }
-
-    if (_compoundShapeURL != entity->getCompoundShapeURL()) {
-        return true;
-    }
-
-    return false;
 }
 
 void ParticleEffectEntityRenderer::doRenderUpdateSynchronousTyped(const ScenePointer& scene, Transaction& transaction, const TypedEntityPointer& entity) {

@@ -39,6 +39,23 @@ class ModelItemID;
 class MyHead;
 class DetailedMotionState;
 
+/**jsdoc
+ * <p>Locomotion control types.</p>
+ * <table>
+ *   <thead>
+ *     <tr><th>Value</th><th>Name</th><th>Description</th></tr>
+ *   </thead>
+ *   <tbody>
+ *     <tr><td><code>0</code></td><td>Default</td><td>Your walking speed is constant; it doesn't change depending on how far 
+ *       forward you push your controller's joystick. Fully pushing your joystick forward makes your avatar run.</td></tr>
+ *     <tr><td><code>1</code></td><td>Analog</td><td>Your walking speed changes in steps based on how far forward you push your 
+ *       controller's joystick. Fully pushing your joystick forward makes your avatar run.</td></tr>
+ *     <tr><td><code>2</code></td><td>AnalogPlus</td><td>Your walking speed changes proportionally to how far forward you push 
+ *       your controller's joystick. Fully pushing your joystick forward makes your avatar run.</td></tr>
+ *   </tbody>
+ * </table>
+ * @typedef {number} MyAvatar.LocomotionControlsMode
+ */
 enum LocomotionControlsMode {
     CONTROLS_DEFAULT = 0,
     CONTROLS_ANALOG,
@@ -128,6 +145,8 @@ class MyAvatar : public Avatar {
      *     avatar. <em>Read-only.</em>
      * @property {number} sensorToWorldScale - The scale that transforms dimensions in the user's real world to the avatar's
      *     size in the virtual world. <em>Read-only.</em>
+     * @property {boolean} hasPriority - <code>true</code> if the avatar is in a "hero" zone, <code>false</code> if it isn't.
+     *     <em>Read-only.</em>
      *
      * @comment IMPORTANT: This group of properties is copied from Avatar.h; they should NOT be edited here.
      * @property {Vec3} skeletonOffset - Can be used to apply a translation offset between the avatar's position and the
@@ -135,6 +154,7 @@ class MyAvatar : public Avatar {
      *
      * @property {Vec3} qmlPosition - A synonym for <code>position</code> for use by QML.
      *
+     * @property {Vec3} feetPosition - The position of the avatar's feet.
      * @property {boolean} shouldRenderLocally=true - If <code>true</code> then your avatar is rendered for you in Interface,
      *     otherwise it is not rendered for you (but it is still rendered for other users).
      * @property {Vec3} motorVelocity=Vec3.ZERO - The target velocity of your avatar to be achieved by a scripted motor.
@@ -239,9 +259,16 @@ class MyAvatar : public Avatar {
      *     where MyAvatar.sessionUUID is not available (e.g., if not connected to a domain). Note: Likely to be deprecated. 
      *     <em>Read-only.</em>
      *
-     * @property {number} walkSpeed - The walk speed of your avatar.
-     * @property {number} walkBackwardSpeed - The walk backward speed of your avatar.
-     * @property {number} sprintSpeed - The sprint speed of your avatar.
+     * @property {number} walkSpeed - The walk speed of your avatar for the current control scheme (see 
+     *     {@link MyAvatar.getControlScheme|getControlScheme}).
+     * @property {number} walkBackwardSpeed - The walk backward speed of your avatar for the current control scheme (see 
+     *     {@link MyAvatar.getControlScheme|getControlScheme}).
+     * @property {number} sprintSpeed - The sprint (run) speed of your avatar for the current control scheme (see 
+     *     {@link MyAvatar.getControlScheme|getControlScheme}).
+     * @property {number} analogPlusWalkSpeed - The walk speed of your avatar for the "AnalogPlus" control scheme.
+     *     <p><strong>Warning:</strong> Setting this value also sets the value of <code>analogPlusSprintSpeed</code> to twice 
+     *     the value.</p>
+     * @property {number} analogPlusSprintSpeed - The sprint (run) speed of your avatar for the "AnalogPlus" control scheme.
      * @property {MyAvatar.SitStandModelType} userRecenterModel - Controls avatar leaning and recentering behavior.
      * @property {number} isInSittingState - <code>true</code> if your avatar is sitting (avatar leaning is disabled, 
      *     recenntering is enabled), <code>false</code> if it is standing (avatar leaning is enabled, and avatar recenters if it 
@@ -281,6 +308,7 @@ class MyAvatar : public Avatar {
      * @borrows Avatar.updateAvatarEntity as updateAvatarEntity
      * @borrows Avatar.clearAvatarEntity as clearAvatarEntity
      * @borrows Avatar.setForceFaceTrackerConnected as setForceFaceTrackerConnected
+     * @borrows Avatar.setSkeletonModelURL as setSkeletonModelURL
      * @borrows Avatar.getAttachmentData as getAttachmentData
      * @borrows Avatar.setAttachmentData as setAttachmentData
      * @borrows Avatar.attach as attach
@@ -308,12 +336,12 @@ class MyAvatar : public Avatar {
      * @comment Avatar.setAbsoluteJointTranslationInObjectFrame as setAbsoluteJointTranslationInObjectFrame - Don't borrow because implementation is different.
      * @borrows Avatar.getTargetScale as getTargetScale
      * @borrows Avatar.resetLastSent as resetLastSent
-     * @borrows Avatar.hasPriority as hasPriority
      */
     // FIXME: `glm::vec3 position` is not accessible from QML, so this exposes position in a QML-native type
     Q_PROPERTY(QVector3D qmlPosition READ getQmlPosition)
     QVector3D getQmlPosition() { auto p = getWorldPosition(); return QVector3D(p.x, p.y, p.z); }
 
+    Q_PROPERTY(glm::vec3 feetPosition READ getWorldFeetPosition WRITE goToFeetLocation)
     Q_PROPERTY(bool shouldRenderLocally READ getShouldRenderLocally WRITE setShouldRenderLocally)
     Q_PROPERTY(glm::vec3 motorVelocity READ getScriptedMotorVelocity WRITE setScriptedMotorVelocity)
     Q_PROPERTY(float motorTimescale READ getScriptedMotorTimescale WRITE setScriptedMotorTimescale)
@@ -583,14 +611,15 @@ public:
      * the avatar will move in unpredictable ways. For more information about avatar joint orientation standards, see 
      * <a href="https://docs.highfidelity.com/create/avatars/avatar-standards">Avatar Standards</a>.</p>
      * @function MyAvatar.overrideAnimation
-     * @param url {string} The URL to the animation file. Animation files need to be FBX format, but only need to contain the 
-     * avatar skeleton and animation data.
-     * @param fps {number} The frames per second (FPS) rate for the animation playback. 30 FPS is normal speed.
-     * @param loop {boolean} Set to true if the animation should loop.
-     * @param firstFrame {number} The frame the animation should start at.
-     * @param lastFrame {number} The frame the animation should end at.
+     * @param {string} url - The URL to the animation file. Animation files may be in glTF or FBX format, but only need to 
+     *     contain the avatar skeleton and animation data. glTF models may be in JSON or binary format (".gltf" or ".glb" URLs 
+     *     respectively).
+     *     <p><strong>Warning:</strong> glTF animations currently do not always animate correctly.</p>
+     * @param {number} fps - The frames per second (FPS) rate for the animation playback. 30 FPS is normal speed.
+     * @param {boolean} loop - <code>true</code> if the animation should loop, <code>false</code> if it shouldn't.
+     * @param {number} firstFrame - The frame to start the animation at.
+     * @param {number} lastFrame - The frame to end the animation at.
      * @example <caption> Play a clapping animation on your avatar for three seconds. </caption>
-     * // Clap your hands for 3 seconds then restore animation back to the avatar.
      * var ANIM_URL = "https://s3.amazonaws.com/hifi-public/animations/ClapAnimations/ClapHands_Standing.fbx";
      * MyAvatar.overrideAnimation(ANIM_URL, 30, true, 0, 53);
      * Script.setTimeout(function () {
@@ -601,18 +630,20 @@ public:
     Q_INVOKABLE void overrideAnimation(const QString& url, float fps, bool loop, float firstFrame, float lastFrame);
 
     /**jsdoc
-     * <code>overrideHandAnimation()</code> Gets the overrides the default hand poses that are triggered with controller buttons.
-     * use {@link MyAvatar.restoreHandAnimation}.</p> to restore the default poses.
+     * Overrides the default hand poses that are triggered with controller buttons.
+     * Use {@link MyAvatar.restoreHandAnimation} to restore the default poses.
      * @function MyAvatar.overrideHandAnimation
-     * @param isLeft {boolean} Set true if using the left hand
-     * @param url {string} The URL to the animation file. Animation files need to be FBX format, but only need to contain the
-     * avatar skeleton and animation data.
-     * @param fps {number} The frames per second (FPS) rate for the animation playback. 30 FPS is normal speed.
-     * @param loop {boolean} Set to true if the animation should loop.
-     * @param firstFrame {number} The frame the animation should start at.
-     * @param lastFrame {number} The frame the animation should end at
-     * @example <caption> Override left hand animation for three seconds. </caption>
-     * // Override the left hand pose then restore the default pose.
+     * @param isLeft {boolean} <code>true</code> to override the left hand, <code>false</code> to override the right hand.
+     * @param {string} url - The URL of the animation file. Animation files need to be in glTF or FBX format, but only need to 
+     *     contain the avatar skeleton and animation data. glTF models may be in JSON or binary format (".gltf" or ".glb" URLs 
+     *     respectively).
+     *     <p><strong>Warning:</strong> glTF animations currently do not always animate correctly.</p>
+     * @param {number} fps - The frames per second (FPS) rate for the animation playback. 30 FPS is normal speed.
+     * @param {boolean} loop - <code>true</code> if the animation should loop, <code>false</code> if it shouldn't.
+     * @param {number} firstFrame - The frame to start the animation at.
+     * @param {number} lastFrame - The frame to end the animation at.
+     * @example <caption> Override left hand animation for three seconds.</caption>
+     * var ANIM_URL = "https://s3.amazonaws.com/hifi-public/animations/ClapAnimations/ClapHands_Standing.fbx";
      * MyAvatar.overrideHandAnimation(isLeft, ANIM_URL, 30, true, 0, 53);
      * Script.setTimeout(function () {
      *     MyAvatar.restoreHandAnimation();
@@ -629,7 +660,6 @@ public:
      * animation, this function has no effect.</p>
      * @function MyAvatar.restoreAnimation
      * @example <caption> Play a clapping animation on your avatar for three seconds. </caption>
-     * // Clap your hands for 3 seconds then restore animation back to the avatar.
      * var ANIM_URL = "https://s3.amazonaws.com/hifi-public/animations/ClapAnimations/ClapHands_Standing.fbx";
      * MyAvatar.overrideAnimation(ANIM_URL, 30, true, 0, 53);
      * Script.setTimeout(function () {
@@ -639,16 +669,15 @@ public:
     Q_INVOKABLE void restoreAnimation();
 
     /**jsdoc
-     * Restores the default hand animation state machine that is driven by the state machine in the avatar-animation json.
+     * Restores the default hand animation state machine that is driven by the state machine in the avatar-animation JSON.
      * <p>The avatar animation system includes a set of default animations along with rules for how those animations are blended
      * together with procedural data (such as look at vectors, hand sensors etc.). Playing your own custom animations will
-     * override the  default animations. <code>restoreHandAnimation()</code> is used to restore the default hand poses
-     * If you aren't currently playing an override hand
-     * animation, this function has no effect.</p>
+     * override the  default animations. <code>restoreHandAnimation()</code> is used to restore the default hand poses.
+     * If you aren't currently playing an override hand animation, this function has no effect.</p>
      * @function MyAvatar.restoreHandAnimation
      * @param isLeft {boolean} Set to true if using the left hand
      * @example <caption> Override left hand animation for three seconds. </caption>
-     * // Override the left hand pose then restore the default pose.
+     * var ANIM_URL = "https://s3.amazonaws.com/hifi-public/animations/ClapAnimations/ClapHands_Standing.fbx";
      * MyAvatar.overrideHandAnimation(isLeft, ANIM_URL, 30, true, 0, 53);
      * Script.setTimeout(function () {
      *     MyAvatar.restoreHandAnimation();
@@ -679,22 +708,26 @@ public:
      * <p>Each avatar has an avatar-animation.json file that defines a set of animation roles. Animation roles map to easily 
      * understandable actions that the avatar can perform, such as <code>"idleStand"</code>, <code>"idleTalk"</code>, or 
      * <code>"walkFwd"</code>. To get the full list of roles, use {@ link MyAvatar.getAnimationRoles}.
-     * For each role, the avatar-animation.json defines when the animation is used, the animation clip (FBX) used, and how 
-     * animations are blended together with procedural data (such as look at vectors, hand sensors etc.).
-     * <code>overrideRoleAnimation()</code> is used to change the animation clip (FBX) associated with a specified animation 
-     * role. To end the role animation and restore the default, use {@link MyAvatar.restoreRoleAnimation}.</p>
-     * <p>Note: Hand roles only affect the hand. Other 'main' roles, like 'idleStand', 'idleTalk', 'takeoffStand' are full body.</p>
+     * For each role, the avatar-animation.json defines when the animation is used, the animation clip (glTF or FBX) used, and 
+     * how animations are blended together with procedural data (such as look at vectors, hand sensors etc.).
+     * <code>overrideRoleAnimation()</code> is used to change the animation clip (glTF or FBX) associated with a specified 
+     * animation role. To end the role animation and restore the default, use {@link MyAvatar.restoreRoleAnimation}.</p>
+     * <p>Note: Hand roles only affect the hand. Other "main" roles, like "idleStand", "idleTalk", and "takeoffStand", are full 
+     * body.</p>
      * <p>Note: When using pre-built animation data, it's critical that the joint orientation of the source animation and target
      * rig are equivalent, since the animation data applies absolute values onto the joints. If the orientations are different,
      * the avatar will move in unpredictable ways. For more information about avatar joint orientation standards, see 
      * <a href="https://docs.highfidelity.com/create/avatars/avatar-standards">Avatar Standards</a>.
      * @function MyAvatar.overrideRoleAnimation
-     * @param role {string} The animation role to override
-     * @param url {string} The URL to the animation file. Animation files need to be in FBX format, but only need to contain the avatar skeleton and animation data.
-     * @param fps {number} The frames per second (FPS) rate for the animation playback. 30 FPS is normal speed.
-     * @param loop {boolean} Set to true if the animation should loop
-     * @param firstFrame {number} The frame the animation should start at
-     * @param lastFrame {number} The frame the animation should end at
+     * @param {string} role - The animation role to override
+     * @param {string} url - The URL to the animation file. Animation files need to be in glTF or FBX format, but only need to 
+     *     contain the avatar skeleton and animation data. glTF models may be in JSON or binary format (".gltf" or ".glb" URLs 
+     *     respectively).
+     *     <p><strong>Warning:</strong> glTF animations currently do not always animate correctly.</p>
+     * @param {number} fps - The frames per second (FPS) rate for the animation playback. 30 FPS is normal speed.
+     * @param {boolean} loop - <code>true</code> if the animation should loop, <code>false</code> if it shouldn't.
+     * @param {number} firstFrame - The frame the animation should start at.
+     * @param {number} lastFrame - The frame the animation should end at.
      * @example <caption>The default avatar-animation.json defines an "idleStand" animation role. This role specifies that when the avatar is not moving,
      * an animation clip of the avatar idling with hands hanging at its side will be used. It also specifies that when the avatar moves, the animation
      * will smoothly blend to the walking animation used by the "walkFwd" animation role.
@@ -715,9 +748,9 @@ public:
      * <p>Each avatar has an avatar-animation.json file that defines a set of animation roles. Animation roles map to easily 
      * understandable actions that the avatar can perform, such as <code>"idleStand"</code>, <code>"idleTalk"</code>, or 
      * <code>"walkFwd"</code>. To get the full list of roles, use {@link MyAvatar.getAnimationRoles}. For each role,
-     * the avatar-animation.json defines when the animation is used, the animation clip (FBX) used, and how animations are 
-     * blended together with procedural data (such as look-at vectors, hand sensors etc.). You can change the animation clip 
-     * (FBX) associated with a specified animation role using {@link MyAvatar.overrideRoleAnimation}.
+     * the avatar-animation.json defines when the animation is used, the animation clip (glTF or FBX) used, and how animations 
+     * are blended together with procedural data (such as look-at vectors, hand sensors etc.). You can change the animation 
+     * clip (glTF or FBX) associated with a specified animation role using {@link MyAvatar.overrideRoleAnimation}.
      * <code>restoreRoleAnimation()</code> is used to restore a specified animation role's default animation clip. If you have 
      * not specified an override animation for the specified role, this function has no effect.
      * @function MyAvatar.restoreRoleAnimation
@@ -782,33 +815,42 @@ public:
      *     mode.
      */
     Q_INVOKABLE bool getSnapTurn() const { return _useSnapTurn; }
+
     /**jsdoc
-     * Sets whether your should do snap turns or smooth turns in HMD mode.
+     * Sets whether you do snap turns or smooth turns in HMD mode.
      * @function MyAvatar.setSnapTurn
      * @param {boolean} on - <code>true</code> to do snap turns in HMD mode; <code>false</code> to do smooth turns in HMD mode.
      */
     Q_INVOKABLE void setSnapTurn(bool on) { _useSnapTurn = on; }
 
-    /**
+    /**jsdoc
+     * Gets the control scheme that is in use.
      * @function MyAvatar.getControlScheme
-     * @returns {number}
-    */
+     * @returns {MyAvatar.LocomotionControlsMode} The control scheme that is in use.
+     */
     Q_INVOKABLE int getControlScheme() const { return _controlSchemeIndex; }
 
-    /**
+    /**jsdoc
+     * Sets the control scheme to use.
      * @function MyAvatar.setControlScheme
-     * @param {number} index
-    */
+     * @param {MyAvatar.LocomotionControlsMode} controlScheme - The control scheme to use.
+     */
     Q_INVOKABLE void setControlScheme(int index) { _controlSchemeIndex = (index >= 0 && index <= 2) ? index : 0; }
     
     /**jsdoc
+     * Gets whether your avatar hovers when its feet are not on the ground.
      * @function MyAvatar.hoverWhenUnsupported
-     * @returns {boolean} 
+     * @returns {boolean} <code>true</code> if your avatar hovers when its feet are not on the ground, <code>false</code> if it 
+     *     falls.
      */
+    // FIXME: Should be named, getHoverWhenUnsupported().
     Q_INVOKABLE bool hoverWhenUnsupported() const { return _hoverWhenUnsupported; }
+
     /**jsdoc
+     * Sets whether your avatar hovers when its feet are not on the ground.
      * @function MyAvatar.setHoverWhenUnsupported
-     * @param {boolean} on
+     * @param {boolean} hover - <code>true</code> if your avatar hovers when its feet are not on the ground, <code>false</code> 
+     *     if it falls.
      */
     Q_INVOKABLE void setHoverWhenUnsupported(bool on) { _hoverWhenUnsupported = on; }
 
@@ -826,26 +868,31 @@ public:
      * @returns {string} <code>"left"</code> for the left hand, <code>"right"</code> for the right hand.
      */
     Q_INVOKABLE QString getDominantHand() const;
+
     /**jsdoc
-    * @function MyAVatar.setStrafeEnabled
-    * @param {bool} enabled
-    */
+     * Sets whether strafing is enabled.
+     * @function MyAvatar.setStrafeEnabled
+     * @param {boolean} enabled - <code>true</code> if strafing is enabled, <code>false</code> if it isn't.
+     */
     Q_INVOKABLE void setStrafeEnabled(bool enabled);
+
     /**jsdoc
-    * @function MyAvatar.getStrafeEnabled
-    * @returns {bool}
-    */
+     * Gets whether strafing is enabled.
+     * @function MyAvatar.getStrafeEnabled
+     * @returns {boolean} <code>true</code> if strafing is enabled, <code>false</code> if it isn't.
+     */
     Q_INVOKABLE bool getStrafeEnabled() const;
+
     /**jsdoc
+     * Sets the HMD alignment relative to your avatar.
      * @function MyAvatar.setHmdAvatarAlignmentType
      * @param {string} type - <code>"head"</code> to align your head and your avatar's head, <code>"eyes"</code> to align your 
      *     eyes and your avatar's eyes.
-     *     
      */
     Q_INVOKABLE void setHmdAvatarAlignmentType(const QString& type);
 
     /**jsdoc
-     * Gets the HMD alignment for your avatar.
+     * Gets the HMD alignment relative to your avatar.
      * @function MyAvatar.getHmdAvatarAlignmentType
      * @returns {string} <code>"head"</code> if aligning your head and your avatar's head, <code>"eyes"</code> if aligning your 
      *     eyes and your avatar's eyes.
@@ -1331,9 +1378,9 @@ public:
     bool hasDriveInput() const;
 
     /**jsdoc
-     * Gets the list of avatar entities and their properties.
+     * Gets the current avatar entity IDs and their properties.
      * @function MyAvatar.getAvatarEntitiesVariant
-     * @returns {MyAvatar.AvatarEntityData[]} The list of avatar entities and their properties.
+     * @returns {MyAvatar.AvatarEntityData[]} The current avatar entity IDs and their properties.
      */
     Q_INVOKABLE QVariantList getAvatarEntitiesVariant();
 
@@ -1495,18 +1542,8 @@ public:
     */
     Q_INVOKABLE float getDriveGear5();
 
-    /**jsdoc
-     * Choose the control scheme.
-     * @function MyAvatar.setControlSchemeIndex
-     * @param {number} Choose the control scheme to be used.
-     */
     void setControlSchemeIndex(int index);
 
-    /**jsdoc
-     * Check what control scheme is in use.
-     * @function MyAvatar.getControlSchemeIndex
-     * @returns {number} Returns the index associated with a given control scheme.
-     */
     int getControlSchemeIndex();
 
     /**jsdoc
@@ -1584,8 +1621,8 @@ public:
     Q_INVOKABLE bool getCharacterControllerEnabled(); // deprecated
 
     /**jsdoc
-     * @comment Different behavior to the Avatar version of this method.
      * Gets the rotation of a joint relative to the avatar.
+     * @comment Different behavior to the Avatar version of this method.
      * @function MyAvatar.getAbsoluteJointRotationInObjectFrame
      * @param {number} index - The index of the joint.
      * @returns {Quat} The rotation of the joint relative to the avatar.
@@ -1597,8 +1634,8 @@ public:
     virtual glm::quat getAbsoluteJointRotationInObjectFrame(int index) const override;
 
     /**jsdoc
-     * @comment Different behavior to the Avatar version of this method.
      * Gets the translation of a joint relative to the avatar.
+     * @comment Different behavior to the Avatar version of this method.
      * @function MyAvatar.getAbsoluteJointTranslationInObjectFrame
      * @param {number} index - The index of the joint.
      * @returns {Vec3} The translation of the joint relative to the avatar.
@@ -1807,6 +1844,33 @@ public:
      */
     Q_INVOKABLE QVariantList getCollidingFlowJoints();
 
+    /**jsdoc
+     * Starts a sitting action for the avatar
+     * @function MyAvatar.beginSit
+     * @param {Vec3} position - The point in space where the avatar will sit.
+     * @param {Quat} rotation - Initial absolute orientation of the avatar once is seated.
+     */
+    Q_INVOKABLE void beginSit(const glm::vec3& position, const glm::quat& rotation);
+
+    /**jsdoc
+     * Ends a sitting action for the avatar
+     * @function MyAvatar.endSit
+     * @param {Vec3} position - The position of the avatar when standing up.
+     * @param {Quat} rotation - The absolute rotation of the avatar once the sitting action ends.
+     */
+    Q_INVOKABLE void endSit(const glm::vec3& position, const glm::quat& rotation);
+
+    int getOverrideJointCount() const;
+    bool getFlowActive() const;
+    bool getNetworkGraphActive() const;
+
+    // sets the reaction enabled and triggered parameters of the passed in params
+    // also clears internal reaction triggers
+    void updateRigControllerParameters(Rig::ControllerParameters& params);
+
+    // Don't substitute verify-fail:
+    virtual const QUrl& getSkeletonModelURL() const override { return _skeletonModelURL; }
+
 public slots:
 
    /**jsdoc
@@ -1876,9 +1940,8 @@ public slots:
      * @param {boolean} [shouldFaceLocation=false] - Set to <code>true</code> to position the avatar a short distance away from
      *      the new position and orientate the avatar to face the position.
      */
-    void goToFeetLocation(const glm::vec3& newPosition,
-        bool hasOrientation, const glm::quat& newOrientation,
-        bool shouldFaceLocation);
+    void goToFeetLocation(const glm::vec3& newPosition, bool hasOrientation = false, 
+        const glm::quat& newOrientation = glm::quat(), bool shouldFaceLocation = false);
 
     /**jsdoc
      * Moves the avatar to a new position and/or orientation in the domain.
@@ -1990,11 +2053,21 @@ public slots:
     void setEnableDebugDrawDefaultPose(bool isEnabled);
 
     /**jsdoc
-     * Displays animation debug graphics.
+     * Displays animation debug graphics. By default, the animation poses used for rendering are displayed. However, 
+     * {@link MyAvatar.setDebugDrawAnimPoseName} can be used to set a specific animation node to display.
      * @function MyAvatar.setEnableDebugDrawAnimPose
      * @param {boolean} enabled - <code>true</code> to show the debug graphics, <code>false</code> to hide.
      */
     void setEnableDebugDrawAnimPose(bool isEnabled);
+
+    /**jsdoc
+     * Sets the animation node to display when animation debug graphics are enabled with 
+     * {@link MyAvatar.setEnableDebugDrawAnimPose}.
+     * @function MyAvatar.setDebugDrawAnimPoseName
+     * @param {string} poseName - The name of the animation node to display debug graphics for. Use <code>""</code> to reset to 
+     *     default.
+     */
+    void setDebugDrawAnimPoseName(QString poseName);
 
     /**jsdoc
      * Displays position debug graphics.
@@ -2152,6 +2225,47 @@ public slots:
      */
     virtual void setModelScale(float scale) override;
 
+    /**jsdoc
+     * MyAvatar.getTriggerReactions
+     * Returns a list of reactions names that can be triggered using MyAvatar.triggerReaction().
+     * @returns {string[]} Array of reaction names.
+     */
+    QStringList getTriggerReactions() const;
+
+
+    /**jsdoc
+     * MyAvatar.getBeginReactions
+     * Returns a list of reactions names that can be enabled using MyAvatar.beginReaction() and MyAvatar.endReaction().
+     * @returns {string[]} Array of reaction names.
+     */
+    QStringList getBeginEndReactions() const;
+
+    /**jsdoc
+     * MyAvatar.triggerReaction
+     * Plays the given reaction on the avatar, once the reaction is complete it will automatically complete.  Only reaction names returned from MyAvatar.getTriggerReactions() are available.
+     * @param {string} reactionName - reaction name
+     * @returns {bool} false if the given reaction is not supported.
+     */
+    bool triggerReaction(QString reactionName);
+
+    /**jsdoc
+     * MyAvatar.beginReaction
+     * Plays the given reaction on the avatar.  The avatar will continue to play the reaction until stopped via the MyAvatar.endReaction() call or superseeded by another reaction.
+     * Only reaction names returned from MyAvatar.getBeginEndReactions() are available.
+     * NOTE: the caller is responsible for calling the corresponding MyAvatar.endReaction(), otherwise the avatar might become stuck in the reaction forever.
+     * @param {string} reactionName - reaction name
+     * @returns {bool} false if the given reaction is not supported.
+     */
+    bool beginReaction(QString reactionName);
+
+    /**jsdoc
+     * MyAvatar.endReaction
+     * Used to stop a given reaction that was started via MyAvatar.beginReaction().
+     * @param {string} reactionName - reaction name
+     * @returns {bool} false if the given reaction is not supported.
+     */
+    bool endReaction(QString reactionName);
+
 signals:
 
     /**jsdoc
@@ -2162,33 +2276,35 @@ signals:
     void audioListenerModeChanged();
 
     /**jsdoc
-     * Notifies when the analogPlusWalkSpeed value is changed.
+     * Triggered when the walk speed set for the "AnalogPlus" control scheme changes.
      * @function MyAvatar.analogPlusWalkSpeedChanged
-     * @param {float} value - the new avatar walk speed
+     * @param {number} speed - The new walk speed set for the "AnalogPlus" control scheme.
      * @returns {Signal} 
      */
     void analogPlusWalkSpeedChanged(float value);
 
     /**jsdoc
-     * Notifies when the analogPlusSprintSpeed value is changed.
+     * Triggered when the sprint (run) speed set for the "AnalogPlus" control scheme changes.
      * @function MyAvatar.analogPlusSprintSpeedChanged
-     * @param {float} value - the new avatar sprint speed
+     * @param {number} speed - The new sprint speed set for the "AnalogPlus" control scheme.
      * @returns {Signal} 
      */
     void analogPlusSprintSpeedChanged(float value);
 
     /**jsdoc
-     * Notifies when the sprintSpeed value is changed.
+     * Triggered when the sprint (run) speed set for the current control scheme (see 
+     * {@link MyAvatar.getControlScheme|getControlScheme}) changes.
      * @function MyAvatar.sprintSpeedChanged
-     * @param {float} value - the new avatar sprint speed
+     * @param {number} speed -The new sprint speed set for the current control scheme.
      * @returns {Signal} 
      */
     void sprintSpeedChanged(float value);
 
     /**jsdoc
-     * Notifies when the walkBackwardSpeed value is changed.
+     * Triggered when the walk backward speed set for the current control scheme (see 
+     * {@link MyAvatar.getControlScheme|getControlScheme}) changes.
      * @function MyAvatar.walkBackwardSpeedChanged
-     * @param {float} value - the new avatar walk backward speed
+     * @param {number} speed - The new walk backward speed set for the current control scheme.
      * @returns {Signal} 
      */
     void walkBackwardSpeedChanged(float value);
@@ -2441,10 +2557,14 @@ private:
     void updateEyeContactTarget(float deltaTime);
 
     // These are made private for MyAvatar so that you will use the "use" methods instead
+    /**jsdoc
+     * @comment Borrows the base class's JSDoc.
+     */
     Q_INVOKABLE virtual void setSkeletonModelURL(const QUrl& skeletonModelURL) override;
 
     virtual void updatePalms() override {}
     void lateUpdatePalms();
+    void setSitDriveKeysStatus(bool enabled);
 
     void clampTargetScaleToDomainLimits();
     void clampScaleChangeToDomainLimits(float desiredScale);
@@ -2635,6 +2755,8 @@ private:
     bool _enableDebugDrawIKChains { false };
     bool _enableDebugDrawDetailedCollision { false };
 
+    ThreadSafeValueCache<QString> _debugDrawAnimPoseName;
+
     mutable bool _cauterizationNeedsUpdate { false }; // do we need to scan children and update their "cauterized" state?
 
     AudioListenerMode _audioListenerMode;
@@ -2776,6 +2898,11 @@ private:
     mutable std::mutex _scriptEngineLock;
     QScriptEngine* _scriptEngine { nullptr };
     bool _needToSaveAvatarEntitySettings { false };
+
+    bool _reactionTriggers[NUM_AVATAR_TRIGGER_REACTIONS] { false, false };
+    int _reactionEnabledRefCounts[NUM_AVATAR_BEGIN_END_REACTIONS] { 0, 0, 0 };
+
+    mutable std::mutex _reactionLock;
 };
 
 QScriptValue audioListenModeToScriptValue(QScriptEngine* engine, const AudioListenerMode& audioListenerMode);

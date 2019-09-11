@@ -29,6 +29,7 @@
 #include "AnimInverseKinematics.h"
 #include "AnimOverlay.h"
 #include "AnimSkeleton.h"
+#include "AnimStateMachine.h"
 #include "AnimUtil.h"
 #include "AvatarConstants.h"
 #include "IKTarget.h"
@@ -563,7 +564,7 @@ void Rig::overrideRoleAnimation(const QString& role, const QString& url, float f
             _origRoleAnimations[role] = node;
             const float REFERENCE_FRAMES_PER_SECOND = 30.0f;
             float timeScale = fps / REFERENCE_FRAMES_PER_SECOND;
-            auto clipNode = std::make_shared<AnimClip>(role, url, firstFrame, lastFrame, timeScale, loop, false);
+            auto clipNode = std::make_shared<AnimClip>(role, url, firstFrame, lastFrame, timeScale, loop, false, AnimBlendType_Normal, "", 0.0f);
             _roleAnimStates[role] = { role, url, fps, loop, firstFrame, lastFrame };
             AnimNode::Pointer parent = node->getParent();
             parent->replaceChild(node, clipNode);
@@ -1092,6 +1093,11 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
                 _desiredStateAge = 0.0f;
             }
             _desiredState = RigRole::Takeoff;
+        } else if (ccState == CharacterControllerState::Seated) {
+            if (_desiredState != RigRole::Seated) {
+                _desiredStateAge = 0.0f;
+            }
+            _desiredState = RigRole::Seated;
         } else {
             float moveThresh;
             if (_state != RigRole::Move) {
@@ -1135,6 +1141,11 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
         } else if (_state == RigRole::Takeoff && _desiredState == RigRole::InAir) {
             _desiredStateAge = STATE_CHANGE_HYSTERESIS_TIMER;
         } else if (_state == RigRole::InAir && _desiredState != RigRole::InAir) {
+            _desiredStateAge = STATE_CHANGE_HYSTERESIS_TIMER;
+        }
+
+        // Skip hysterisis timer for sit transitions.
+        if (_desiredState == RigRole::Seated || _state == RigRole::Seated) {
             _desiredStateAge = STATE_CHANGE_HYSTERESIS_TIMER;
         }
 
@@ -1216,6 +1227,8 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
             _animVars.set("isInAirStand", false);
             _animVars.set("isInAirRun", false);
             _animVars.set("isNotInAir", true);
+            _animVars.set("isSeated", false);
+            _animVars.set("isNotSeated", true);
 
         } else if (_state == RigRole::Turn) {
             if (turningSpeed > 0.0f) {
@@ -1244,6 +1257,8 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
             _animVars.set("isInAirStand", false);
             _animVars.set("isInAirRun", false);
             _animVars.set("isNotInAir", true);
+            _animVars.set("isSeated", false);
+            _animVars.set("isNotSeated", true);
 
         } else if (_state == RigRole::Idle) {
             // default anim vars to notMoving and notTurning
@@ -1265,6 +1280,8 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
             _animVars.set("isInAirStand", false);
             _animVars.set("isInAirRun", false);
             _animVars.set("isNotInAir", true);
+            _animVars.set("isSeated", false);
+            _animVars.set("isNotSeated", true);
 
         } else if (_state == RigRole::Hover) {
             // flying.
@@ -1286,6 +1303,8 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
             _animVars.set("isInAirStand", false);
             _animVars.set("isInAirRun", false);
             _animVars.set("isNotInAir", true);
+            _animVars.set("isSeated", false);
+            _animVars.set("isNotSeated", true);
 
         } else if (_state == RigRole::Takeoff) {
             // jumping in-air
@@ -1315,6 +1334,8 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
             _animVars.set("isInAirStand", false);
             _animVars.set("isInAirRun", false);
             _animVars.set("isNotInAir", false);
+            _animVars.set("isSeated", false);
+            _animVars.set("isNotSeated", true);
 
         } else if (_state == RigRole::InAir) {
             // jumping in-air
@@ -1333,6 +1354,8 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
             _animVars.set("isTakeoffStand", false);
             _animVars.set("isTakeoffRun", false);
             _animVars.set("isNotTakeoff", true);
+            _animVars.set("isSeated", false);
+            _animVars.set("isNotSeated", true);
 
             bool inAirRun = forwardSpeed > 0.1f;
             if (inAirRun) {
@@ -1354,6 +1377,27 @@ void Rig::computeMotionAnimationState(float deltaTime, const glm::vec3& worldPos
             float alpha = glm::clamp((-workingVelocity.y * sensorToWorldScale) / jumpSpeed, -1.0f, 1.0f) + 1.0f;
 
             _animVars.set("inAirAlpha", alpha);
+        } else if (_state == RigRole::Seated) {
+            _animVars.set("isMovingForward", false);
+            _animVars.set("isMovingBackward", false);
+            _animVars.set("isMovingRight", false);
+            _animVars.set("isMovingLeft", false);
+            _animVars.set("isMovingRightHmd", false);
+            _animVars.set("isMovingLeftHmd", false);
+            _animVars.set("isNotMoving", false);
+            _animVars.set("isTurningRight", false);
+            _animVars.set("isTurningLeft", false);
+            _animVars.set("isNotTurning", true);
+            _animVars.set("isFlying", false);
+            _animVars.set("isNotFlying", true);
+            _animVars.set("isTakeoffStand", false);
+            _animVars.set("isTakeoffRun", false);
+            _animVars.set("isNotTakeoff", true);
+            _animVars.set("isInAirStand", false);
+            _animVars.set("isInAirRun", false);
+            _animVars.set("isNotInAir", true);
+            _animVars.set("isSeated", true);
+            _animVars.set("isNotSeated", false);
         }
 
         t += deltaTime;
@@ -1789,8 +1833,10 @@ void Rig::updateFeet(bool leftFootEnabled, bool rightFootEnabled, bool headEnabl
     int hipsIndex = indexOfJoint("Hips");
     const float KNEE_POLE_VECTOR_BLEND_FACTOR = 0.85f;
 
-    if (headEnabled) {
-        // always do IK if head is enabled
+    bool isSeated = _state == RigRole::Seated;
+
+    if (headEnabled && !isSeated) {
+        // enable leg IK if head is enabled and we arent sitting down.
         _animVars.set("leftFootIKEnabled", true);
         _animVars.set("rightFootIKEnabled", true);
     } else {
@@ -1873,11 +1919,61 @@ void Rig::updateFeet(bool leftFootEnabled, bool rightFootEnabled, bool headEnabl
     }
 }
 
+void Rig::updateReactions(const ControllerParameters& params) {
+
+    // trigger reactions
+    if (params.reactionTriggers[AVATAR_REACTION_POSITIVE]) {
+        _animVars.set("reactionPositiveTrigger", true);
+    } else {
+        _animVars.set("reactionPositiveTrigger", false);
+    }
+
+    if (params.reactionTriggers[AVATAR_REACTION_NEGATIVE]) {
+        _animVars.set("reactionNegativeTrigger", true);
+    } else {
+        _animVars.set("reactionNegativeTrigger", false);
+    }
+
+    // begin end reactions
+    bool enabled = params.reactionEnabledFlags[AVATAR_REACTION_RAISE_HAND];
+    _animVars.set("reactionRaiseHandEnabled", enabled);
+    _animVars.set("reactionRaiseHandDisabled", !enabled);
+
+    enabled = params.reactionEnabledFlags[AVATAR_REACTION_APPLAUD];
+    _animVars.set("reactionApplaudEnabled", enabled);
+    _animVars.set("reactionApplaudDisabled", !enabled);
+
+    enabled = params.reactionEnabledFlags[AVATAR_REACTION_POINT];
+    _animVars.set("reactionPointEnabled", enabled);
+    _animVars.set("reactionPointDisabled", !enabled);
+
+    // determine if we should ramp off IK
+    if (_enableInverseKinematics) {
+        bool reactionPlaying = false;
+        std::shared_ptr<AnimStateMachine> mainStateMachine = std::dynamic_pointer_cast<AnimStateMachine>(_animNode->findByName("mainStateMachine"));
+        std::shared_ptr<AnimStateMachine> idleStateMachine = std::dynamic_pointer_cast<AnimStateMachine>(_animNode->findByName("idle"));
+        if (mainStateMachine && mainStateMachine->getCurrentStateID() == "idle" && idleStateMachine) {
+            reactionPlaying = idleStateMachine->getCurrentStateID().startsWith("reaction");
+        }
+
+        bool isSeated = _state == RigRole::Seated;
+        bool hipsEnabled = params.primaryControllerFlags[PrimaryControllerType_Hips] & (uint8_t)ControllerFlags::Enabled;
+        bool hipsEstimated = params.primaryControllerFlags[PrimaryControllerType_Hips] & (uint8_t)ControllerFlags::Estimated;
+        bool hmdMode = hipsEnabled && !hipsEstimated;
+
+        if ((reactionPlaying || isSeated) && !hmdMode) {
+            // TODO: make this smooth.
+            // disable head IK while reaction is playing, but only in "desktop" mode.
+            _animVars.set("headType", (int)IKTarget::Type::Unknown);
+        }
+    }
+}
+
 void Rig::updateEyeJoint(int index, const glm::vec3& modelTranslation, const glm::quat& modelRotation, const glm::vec3& lookAtSpot, const glm::vec3& saccade) {
 
     // TODO: does not properly handle avatar scale.
 
-    if (isIndexValid(index)) {
+    if (isIndexValid(index) && !_internalPoseSet._overrideFlags[index]) {
         const glm::mat4 rigToWorld = createMatFromQuatAndPos(modelRotation, modelTranslation);
         const glm::mat4 worldToRig = glm::inverse(rigToWorld);
         const glm::vec3 lookAtVector = glm::normalize(transformPoint(worldToRig, lookAtSpot) - _internalPoseSet._absolutePoses[index].trans());
@@ -2021,23 +2117,33 @@ void Rig::updateFromControllerParameters(const ControllerParameters& params, flo
     _previousIsTalking = params.isTalking;
 
     const float TOTAL_EASE_IN_TIME = 0.75f;
-    const float TOTAL_EASE_OUT_TIME = 1.5f;
+    const float TOTAL_EASE_OUT_TIME = 0.75f;
     if (params.isTalking) {
         if (_talkIdleInterpTime < 1.0f) {
             _talkIdleInterpTime += dt / TOTAL_EASE_IN_TIME;
+            if (_talkIdleInterpTime > 1.0f) {
+                _talkIdleInterpTime = 1.0f;
+            }
             float easeOutInValue = _talkIdleInterpTime < 0.5f ? 4.0f * powf(_talkIdleInterpTime, 3.0f) : 4.0f * powf((_talkIdleInterpTime - 1.0f), 3.0f) + 1.0f;
-            _animVars.set("idleOverlayAlpha", easeOutInValue);
+            _animVars.set("talkOverlayAlpha", easeOutInValue);
+            _animVars.set("idleOverlayAlpha", easeOutInValue);  // backward compatibility for older anim graphs.
         } else {
-            _animVars.set("idleOverlayAlpha", 1.0f);
+            _animVars.set("talkOverlayAlpha", 1.0f);
+            _animVars.set("idleOverlayAlpha", 1.0f);  // backward compatibility for older anim graphs.
         }
     } else {
         if (_talkIdleInterpTime < 1.0f) {
             _talkIdleInterpTime += dt / TOTAL_EASE_OUT_TIME;
+            if (_talkIdleInterpTime > 1.0f) {
+                _talkIdleInterpTime = 1.0f;
+            }
             float easeOutInValue = _talkIdleInterpTime < 0.5f ? 4.0f * powf(_talkIdleInterpTime, 3.0f) : 4.0f * powf((_talkIdleInterpTime - 1.0f), 3.0f) + 1.0f;
             float talkAlpha = 1.0f - easeOutInValue;
-            _animVars.set("idleOverlayAlpha", talkAlpha);
+            _animVars.set("talkOverlayAlpha", talkAlpha);
+            _animVars.set("idleOverlayAlpha", talkAlpha);  // backward compatibility for older anim graphs.
         } else {
-            _animVars.set("idleOverlayAlpha", 0.0f);
+            _animVars.set("talkOverlayAlpha", 0.0f);
+            _animVars.set("idleOverlayAlpha", 0.0f);  // backward compatibility for older anim graphs.
         }
     }
 
@@ -2146,6 +2252,8 @@ void Rig::updateFromControllerParameters(const ControllerParameters& params, flo
         }
     }
 
+    updateReactions(params);
+
     _previousControllerParameters = params;
 }
 
@@ -2232,6 +2340,14 @@ void Rig::initAnimGraph(const QUrl& url) {
     }
 }
 
+AnimNode::ConstPointer Rig::findAnimNodeByName(const QString& name) const {
+    if (_animNode) {
+        return _animNode->findByName(name);
+    } else {
+        return nullptr;
+    }
+}
+
 bool Rig::getModelRegistrationPoint(glm::vec3& modelRegistrationPointOut) const {
     if (_animSkeleton && _rootJointIndex >= 0) {
         modelRegistrationPointOut = _geometryOffset * -_animSkeleton->getAbsoluteDefaultPose(_rootJointIndex).trans();
@@ -2258,7 +2374,7 @@ void Rig::applyOverridePoses() {
     }
 }
 
-void Rig::buildAbsoluteRigPoses(const AnimPoseVec& relativePoses, AnimPoseVec& absolutePosesOut) {
+void Rig::buildAbsoluteRigPoses(const AnimPoseVec& relativePoses, AnimPoseVec& absolutePosesOut) const {
     DETAILED_PERFORMANCE_TIMER("buildAbsolute");
     if (!_animSkeleton) {
         return;
@@ -2277,6 +2393,24 @@ void Rig::buildAbsoluteRigPoses(const AnimPoseVec& relativePoses, AnimPoseVec& a
             absolutePosesOut[i] = absolutePosesOut[parentIndex] * relativePoses[i];
         }
     }
+}
+
+int Rig::getOverrideJointCount() const {
+    int count = 0;
+    for (size_t i = 0; i < _internalPoseSet._overrideFlags.size(); i++) {
+        if (_internalPoseSet._overrideFlags[i]) {
+            count++;
+        }
+    }
+    return count;
+}
+
+bool Rig::getFlowActive() const {
+    return _internalFlow.getActive();
+}
+
+bool Rig::getNetworkGraphActive() const {
+    return _sendNetworkNode;
 }
 
 glm::mat4 Rig::getJointTransform(int jointIndex) const {

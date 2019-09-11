@@ -49,8 +49,8 @@ bool RenderEventHandler::event(QEvent* e) {
     return QObject::event(e);
 }
 
-RenderEventHandler::RenderEventHandler(SharedObject* shared, QThread* targetThread)
-    : _shared(shared) {
+RenderEventHandler::RenderEventHandler(SharedObject* shared, QThread* targetThread) :
+        _shared(shared) {
     // Create the GL canvas in the same thread as the share canvas
     if (!_canvas.create(SharedObject::getSharedContext())) {
         qFatal("Unable to create new offscreen GL context");
@@ -136,7 +136,7 @@ void RenderEventHandler::qmlRender(bool sceneGraphSync) {
 
     resize();
 
-    {
+    if (_currentSize != QSize()) {
         PROFILE_RANGE(render_qml_gl, "render");
         GLuint texture = SharedObject::getTextureCache().acquireTexture(_currentSize);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, _fbo);
@@ -146,8 +146,16 @@ void RenderEventHandler::qmlRender(bool sceneGraphSync) {
             glClear(GL_COLOR_BUFFER_BIT);
         } else {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            _shared->_quickWindow->setRenderTarget(_fbo, _currentSize);
-            _shared->_renderControl->render();
+            _shared->setRenderTarget(_fbo, _currentSize);
+
+            // workaround for https://highfidelity.atlassian.net/browse/BUGZ-1119
+            {
+                // Serialize QML rendering because of a crash caused by Qt bug 
+                // https://bugreports.qt.io/browse/QTBUG-77469
+                static std::mutex qmlRenderMutex;
+                std::unique_lock<std::mutex> qmlRenderLock{ qmlRenderMutex };
+                _shared->_renderControl->render();
+            }
         }
         _shared->_lastRenderTime = usecTimestampNow();
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -179,7 +187,7 @@ void RenderEventHandler::onQuit() {
             _fbo = 0;
         }
 
-        _shared->shutdownRendering(_canvas, _currentSize);
+        _shared->shutdownRendering(_currentSize);
         _canvas.doneCurrent();
     }
     _canvas.moveToThreadWithContext(qApp->thread());

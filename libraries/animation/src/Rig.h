@@ -88,6 +88,8 @@ public:
         AnimPose secondaryControllerPoses[NumSecondaryControllerTypes];  // rig space
         uint8_t secondaryControllerFlags[NumSecondaryControllerTypes];
         bool isTalking;
+        bool reactionEnabledFlags[NUM_AVATAR_BEGIN_END_REACTIONS];
+        bool reactionTriggers[NUM_AVATAR_TRIGGER_REACTIONS];
         HFMJointShapeInfo hipsShapeInfo;
         HFMJointShapeInfo spineShapeInfo;
         HFMJointShapeInfo spine1ShapeInfo;
@@ -107,7 +109,8 @@ public:
         Ground = 0,
         Takeoff,
         InAir,
-        Hover
+        Hover,
+        Seated
     };
 
     Rig();
@@ -196,6 +199,7 @@ public:
     void initAnimGraph(const QUrl& url);
 
     AnimNode::ConstPointer getAnimNode() const { return _animNode; }
+    AnimNode::ConstPointer findAnimNodeByName(const QString& name) const;
     AnimSkeleton::ConstPointer getAnimSkeleton() const { return _animSkeleton; }
     QScriptValue addAnimationStateHandler(QScriptValue handler, QScriptValue propertiesList);
     void removeAnimationStateHandler(QScriptValue handler);
@@ -243,7 +247,11 @@ public:
     Flow& getFlow() { return _internalFlow; }
 
     float getUnscaledEyeHeight() const;
+    void buildAbsoluteRigPoses(const AnimPoseVec& relativePoses, AnimPoseVec& absolutePosesOut) const;
 
+    int getOverrideJointCount() const;
+    bool getFlowActive() const;
+    bool getNetworkGraphActive() const;
 
 signals:
     void onLoadComplete();
@@ -252,7 +260,6 @@ protected:
     bool isIndexValid(int index) const { return _animSkeleton && index >= 0 && index < _animSkeleton->getNumJoints(); }
     void updateAnimationStateHandlers();
     void applyOverridePoses();
-    void buildAbsoluteRigPoses(const AnimPoseVec& relativePoses, AnimPoseVec& absolutePosesOut);
 
     void updateHead(bool headEnabled, bool hipsEnabled, const AnimPose& headMatrix);
     void updateHands(bool leftHandEnabled, bool rightHandEnabled, bool hipsEnabled, bool hipsEstimated,
@@ -264,6 +271,7 @@ protected:
     void updateFeet(bool leftFootEnabled, bool rightFootEnabled, bool headEnabled,
                     const AnimPose& leftFootPose, const AnimPose& rightFootPose,
                     const glm::mat4& rigToSensorMatrix, const glm::mat4& sensorToRigMatrix);
+    void updateReactions(const ControllerParameters& params);
 
     void updateEyeJoint(int index, const glm::vec3& modelTranslation, const glm::quat& modelRotation, const glm::vec3& lookAt, const glm::vec3& saccade);
     void calcAnimAlpha(float speed, const std::vector<float>& referenceSpeeds, float* alphaOut) const;
@@ -332,7 +340,8 @@ protected:
         Move,
         Hover,
         Takeoff,
-        InAir
+        InAir,
+        Seated
     };
     RigRole _state { RigRole::Idle };
     RigRole _desiredState { RigRole::Idle };

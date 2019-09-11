@@ -1,5 +1,5 @@
 //
-//  PropItem.qml
+//  PropScalar.qml
 //
 //  Created by Sam Gateau on 3/2/2019
 //  Copyright 2019 High Fidelity, Inc.
@@ -20,29 +20,34 @@ PropItem {
     property bool integral: false
     property var numDigits: 2
 
-    property alias valueVar : sliderControl.value
+
     property alias min: sliderControl.minimumValue
     property alias max: sliderControl.maximumValue
 
     property bool showValue: true  
     
-    signal valueChanged(real value)
-
     Component.onCompleted: {
-        valueVar = root.valueVarGetter();
-    }     
+    }  
+
+    property var sourceValueVar: root.valueVarGetter()
+
+    function applyValueVarFromWidgets(value) {
+        if (!root.readOnly) { 
+           root.valueVarSetter(value)
+        }
+    }
 
     PropLabel {
         id: valueLabel
         enabled: root.showValue
 
         anchors.left: root.splitter.right
+        anchors.right: (root.readOnly ? root.right : sliderControl.left)
         anchors.verticalCenter: root.verticalCenter
-        width: root.width * (root.readOnly ? 1.0 : global.valueAreaWidthScale)
         horizontalAlignment: global.valueTextAlign
         height: global.slimHeight
         
-        text: root.valueVarGetter().toFixed(root.integral ? 0 : root.numDigits)
+        text: root.sourceValueVar.toFixed(root.integral ? 0 : root.numDigits)
 
         background: Rectangle {
             color: global.color
@@ -50,17 +55,25 @@ PropItem {
             border.width: global.valueBorderWidth
             radius: global.valueBorderRadius
         }
+
+        MouseArea{
+            id: mousearea
+            anchors.fill: parent
+            onDoubleClicked: { sliderControl.visible = !sliderControl.visible }
+        }
     }
 
     HifiControls.Slider {
         id: sliderControl
         visible: !root.readOnly
-        stepSize: root.integral ? 1.0 : 0.0
-        anchors.left: valueLabel.right
-        anchors.right: root.right
-        anchors.verticalCenter: root.verticalCenter
 
-        onValueChanged: { if (!root.readOnly) { root.valueVarSetter(value)}  }
+        stepSize: root.integral ? 1.0 : 0.0
+        value: root.sourceValueVar
+        onValueChanged: { applyValueVarFromWidgets(value) }
+
+        width: root.width * (root.readOnly ? 0.0 : global.handleAreaWidthScale)
+        anchors.right: root.right
+        anchors.verticalCenter: root.verticalCnter
     }
 
     

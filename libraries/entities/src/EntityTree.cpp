@@ -2121,15 +2121,27 @@ void EntityTree::fixupNeedsParentFixups() {
         _needsParentFixup.clear();
     }
 
+    std::unordered_set<QUuid> seenEntityIds;
     QMutableVectorIterator<EntityItemWeakPointer> iter(entitiesToFixup);
     while (iter.hasNext()) {
-        EntityItemWeakPointer entityWP = iter.next();
+        const auto& entityWP = iter.next();
         EntityItemPointer entity = entityWP.lock();
         if (!entity) {
             // entity was deleted before we found its parent
             iter.remove();
             continue;
         }
+
+        const auto id = entity->getID();
+        // BUGZ-771 some entities seem to never be removed by the below logic and further seem to accumulate dupes within the _needsParentFixup list
+        // This block ensures that duplicates are removed from entitiesToFixup before it's re-appended to _needsParentFixup
+        if (0 != seenEntityIds.count(id)) {
+            // Entity was duplicated inside entitiesToFixup
+            iter.remove();
+            continue;
+        }
+
+        seenEntityIds.insert(id);
 
         entity->requiresRecalcBoxes();
         bool queryAACubeSuccess { false };
@@ -2234,8 +2246,8 @@ void EntityTree::preUpdate() {
 void EntityTree::update(bool simulate) {
     PROFILE_RANGE(simulation_physics, "UpdateTree");
     PerformanceTimer perfTimer("updateTree");
-    withWriteLock([&] {
-        if (simulate && _simulation) {
+    if (simulate && _simulation) {
+        withWriteLock([&] {
             _simulation->updateEntities();
             {
                 PROFILE_RANGE(simulation_physics, "Deletes");
@@ -2253,8 +2265,8 @@ void EntityTree::update(bool simulate) {
                     deleteEntities(idsToDelete, true);
                 }
             }
-        }
-    });
+        });
+    }
 }
 
 quint64 EntityTree::getAdjustedConsiderSince(quint64 sinceTime) {

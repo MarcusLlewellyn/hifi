@@ -12,6 +12,7 @@
 #include <QtQml/QQmlProperty>
 
 #include <shared/QtHelpers.h>
+#include <shared/LocalFileAccessGate.h>
 #include <PathUtils.h>
 #include <DependencyManager.h>
 #include <AccountManager.h>
@@ -635,13 +636,24 @@ void TabletProxy::returnToPreviousApp() {
         qCDebug(uiLogging) << "tablet cannot load QML because _qmlTabletRoot is null";
     }
 }
-    
+
 void TabletProxy::loadQMLSource(const QVariant& path, bool resizable) {
+    // Capture whether the current script thread is allowed to load local HTML content, 
+    // pass the information along to the real function
+    bool localSafeContext = hifi::scripting::isLocalAccessSafeThread();
     if (QThread::currentThread() != thread()) {
-        QMetaObject::invokeMethod(this, "loadQMLSource", Q_ARG(QVariant, path), Q_ARG(bool, resizable));
+        QMetaObject::invokeMethod(this, "loadQMLSourceImpl", Q_ARG(QVariant, path), Q_ARG(bool, resizable), Q_ARG(bool, localSafeContext));
         return;
     }
+    loadQMLSourceImpl(path, resizable, localSafeContext);
+}
 
+void TabletProxy::loadQMLSourceImpl(const QVariant& path, bool resizable, bool localSafeContext) {
+    if (QThread::currentThread() != thread()) {
+        qCWarning(uiLogging) << __FUNCTION__ << "may not be called directly by scripts";
+        return;
+
+    }
     QObject* root = nullptr;
     if (!_toolbarMode && _qmlTabletRoot) {
         root = _qmlTabletRoot;
@@ -650,7 +662,14 @@ void TabletProxy::loadQMLSource(const QVariant& path, bool resizable) {
     }
 
     if (root) {
+        // BUGZ-1398: tablet access to local HTML files from client scripts
+        // Here we TEMPORARILY mark the main thread as allowed to load local file content, 
+        // because the thread that originally made the call is so marked.  
+        if (localSafeContext) {
+            hifi::scripting::setLocalAccessSafeThread(true);
+        }
         QMetaObject::invokeMethod(root, "loadSource", Q_ARG(const QVariant&, path));
+        hifi::scripting::setLocalAccessSafeThread(false);
         _state = State::QML;
         _currentPathLoaded = path;
         QMetaObject::invokeMethod(root, "setShown", Q_ARG(const QVariant&, QVariant(true)));
@@ -969,6 +988,46 @@ const QString OBJECT_NAME_KEY = "objectName";
 const QString STABLE_ORDER_KEY = "stableOrder";
 static int s_stableOrder = 1;
 
+/**jsdoc
+ * Properties of a tablet button.
+ *
+ * @typedef {object} TabletButtonProxy.ButtonProperties
+ * 
+ * @property {Uuid} uuid - The button ID. <em>Read-only.</em>
+ * @property {Uuid} objectName - Synonym for <code>uuid</code>.
+ * @property {number} stableOrder - The order in which the button was created: each button created gets a value incremented by 
+ *     one.
+ * 
+ * @property {string} icon - The url of the default button icon displayed. (50 x 50 pixels. SVG, PNG, or other image format.) 
+ * @property {string} hoverIcon - The url of the button icon displayed when the button is hovered and not active.
+ * @property {string} activeIcon - The url of the button icon displayed when the button is active.
+ * @property {string} activeHoverIcon - The url of the button icon displayed when the button is hovered and active.
+ * @property {string} text - The button caption.
+ * @property {string} hoverText - The button caption when the button is hovered and not active.
+ * @property {string} activeText - The button caption when the button is active.
+ * @property {string} activeHoverText - The button caption when the button is hovered and active.
+ * @comment {string} defaultCaptionColor="#ffffff" - Internal property.
+ * @property {string} captionColor="#ffffff" - The color of the button caption.
+ 
+ * @property {boolean} isActive=false - <code>true</code> if the button is active, <code>false</code> if it isn't.
+ * @property {boolean} isEntered - <code>true</code> if the button is being hovered, <code>false</code> if it isn't.
+ * @property {boolean} buttonEnabled=true - <code>true</code> if the button is enabled, <code>false</code> if it is disabled.
+ * @property {number} sortOrder=100 - Determines the order of the buttons: buttons with lower numbers appear before buttons
+ *     with larger numbers.
+ *
+ * @property {boolean} inDebugMode - If <code>true</code> and the tablet is being used, the button's <code>isActive</code> 
+ *     state toggles each time the button is clicked. <em>Tablet only.</em>
+ *
+ * @comment {object} tabletRoot - Internal tablet-only property.
+ * @property {object} flickable - Internal tablet-only property.
+ * @property {object} gridView - Internal tablet-only property.
+ * @property {number} buttonIndex - Internal tablet-only property.
+ *
+ * @comment {number} imageOffOut - Internal toolbar-only property.
+ * @comment {number} imageOffIn - Internal toolbar-only property.
+ * @comment {number} imageOnOut - Internal toolbar-only property.
+ * @comment {number} imageOnIn - Internal toolbar-only property.
+ */
 TabletButtonProxy::TabletButtonProxy(const QVariantMap& properties) :
     _uuid(QUuid::createUuid()),
     _stableOrder(++s_stableOrder),
@@ -977,6 +1036,7 @@ TabletButtonProxy::TabletButtonProxy(const QVariantMap& properties) :
     _properties[UUID_KEY] = _uuid;
     _properties[OBJECT_NAME_KEY] = _uuid.toString();
     _properties[STABLE_ORDER_KEY] = _stableOrder;
+    // Other properties are defined in TabletButton.qml and ToolbarButton.qml.
     if (QThread::currentThread() != qApp->thread()) {
         qCWarning(uiLogging) << "Creating tablet button proxy on wrong thread";
     }

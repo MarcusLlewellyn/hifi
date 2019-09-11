@@ -117,8 +117,7 @@ const int COLLIDE_WITH_OTHER_AVATARS = 11; // 12th bit
 const int HAS_HERO_PRIORITY = 12; // 13th bit  (be scared)
 
 /**jsdoc
- * <p>The pointing state of the hands is specified by the following values:
- </p>
+ * <p>The pointing state of the hands is specified by the following values:</p>
  * <table>
  *   <thead>
  *     <tr><th>Value</th><th>Description</th>
@@ -302,6 +301,15 @@ namespace AvatarDataPacket {
     const size_t AVATAR_LOCAL_POSITION_SIZE = 12;
     static_assert(sizeof(AvatarLocalPosition) == AVATAR_LOCAL_POSITION_SIZE, "AvatarDataPacket::AvatarLocalPosition size doesn't match.");
 
+    PACKED_BEGIN struct HandControllers {
+        SixByteQuat leftHandRotation;
+        SixByteTrans leftHandTranslation;
+        SixByteQuat rightHandRotation;
+        SixByteTrans rightHandTranslation;
+    } PACKED_END;
+    static const size_t HAND_CONTROLLERS_SIZE = 24;
+    static_assert(sizeof(HandControllers) == HAND_CONTROLLERS_SIZE, "AvatarDataPacket::HandControllers size doesn't match.");
+
     const size_t MAX_CONSTANT_HEADER_SIZE = HEADER_SIZE +
         AVATAR_GLOBAL_POSITION_SIZE +
         AVATAR_BOUNDING_BOX_SIZE +
@@ -312,17 +320,8 @@ namespace AvatarDataPacket {
         SENSOR_TO_WORLD_SIZE +
         ADDITIONAL_FLAGS_SIZE +
         PARENT_INFO_SIZE +
-        AVATAR_LOCAL_POSITION_SIZE;
-
-    PACKED_BEGIN struct HandControllers {
-        SixByteQuat leftHandRotation;
-        SixByteTrans leftHandTranslation;
-        SixByteQuat rightHandRotation;
-        SixByteTrans rightHandTranslation;
-    } PACKED_END;
-    static const size_t HAND_CONTROLLERS_SIZE = 24;
-    static_assert(sizeof(HandControllers) == HAND_CONTROLLERS_SIZE, "AvatarDataPacket::HandControllers size doesn't match.");
-
+        AVATAR_LOCAL_POSITION_SIZE +
+        HAND_CONTROLLERS_SIZE;
 
     // variable length structure follows
 
@@ -1206,11 +1205,17 @@ public:
     QByteArray identityByteArray(bool setIsReplicated = false) const;
 
     QUrl getWireSafeSkeletonModelURL() const;
-    const QUrl& getSkeletonModelURL() const { return _skeletonModelURL; }
+    virtual const QUrl& getSkeletonModelURL() const;
 
     const QString& getDisplayName() const { return _displayName; }
     const QString& getSessionDisplayName() const { return _sessionDisplayName; }
     bool getLookAtSnappingEnabled() const { return _lookAtSnappingEnabled; }
+
+    /**jsdoc
+     * Sets the avatar's skeleton model.
+     * @function Avatar.setSkeletonModelURL
+     * @param {string} url - The avatar's FST file.
+     */
     Q_INVOKABLE virtual void setSkeletonModelURL(const QUrl& skeletonModelURL);
 
     virtual void setDisplayName(const QString& displayName);
@@ -1262,12 +1267,11 @@ public:
     /**jsdoc
      * Attaches a model to your avatar. For example, you can give your avatar a hat to wear, a guitar to hold, or a surfboard to
      * stand on.
-     * <p>Note: Attached models are models only; they are not entities and can not be manipulated using the {@link Entities} API. 
-     * Nor can you use this function to attach an entity (such as a sphere or a box) to your avatar.</p>
      * @function Avatar.attach
-     * @param {string} modelURL - The URL of the model to attach. Models can be .FBX or .OBJ format.
-     * @param {string} [jointName=""] - The name of the avatar joint (see {@link MyAvatar.getJointNames} or {@link Avatar.getJointNames}) to attach the model 
-     *     to.
+     * @param {string} modelURL - The URL of the glTF, FBX, or OBJ model to attach. glTF models may be in JSON or binary format 
+     *     (".gltf" or ".glb" URLs respectively).
+     * @param {string} [jointName=""] - The name of the avatar joint (see {@link MyAvatar.getJointNames} or 
+     *     {@link Avatar.getJointNames}) to attach the model to.
      * @param {Vec3} [translation=Vec3.ZERO] - The offset to apply to the model relative to the joint position.
      * @param {Quat} [rotation=Quat.IDENTITY] - The rotation to apply to the model relative to the joint orientation.
      * @param {number} [scale=1.0] - The scale to apply to the model.
@@ -1286,7 +1290,7 @@ public:
      *     jointName: "Head",
      *     translation: {"x": 0, "y": 0.25, "z": 0},
      *     rotation: {"x": 0, "y": 0, "z": 0, "w": 1},
-     *     scale: 1,
+     *     scale: 0.01,
      *     isSoft: false
      * };
      *

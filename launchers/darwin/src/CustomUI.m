@@ -15,13 +15,38 @@ NSString* hifiBackgroundFilename = @"hifi_window";
                                                           forObject:self];
     fieldEditor.insertionPointColor = insertionPointColor;
 }
+
+- (BOOL) performKeyEquivalent:(NSEvent *)event
+{
+    if ([event type] == NSEventTypeKeyDown) {
+        if ([event modifierFlags] & NSEventModifierFlagCommand) {
+            if ([[event charactersIgnoringModifiers] isEqualToString:@"v"]) {
+                [NSApp sendAction:(NSSelectorFromString(@"paste:")) to:nil from:self];
+                return TRUE;
+            }
+
+            if ([[event charactersIgnoringModifiers] isEqualToString:@"c"]) {
+                [NSApp sendAction:(NSSelectorFromString(@"copy:")) to:nil from:self];
+                return TRUE;
+            }
+
+            if ([[event charactersIgnoringModifiers] isEqualToString:@"a"]) {
+                [NSApp sendAction:(NSSelectorFromString(@"selectAll:")) to:nil from:self];
+                return TRUE;
+            }
+        }
+    }
+
+    return [super performKeyEquivalent:event];
+}
+
 - (void) mouseDown:(NSEvent *)event
 {
     NSColor *insertionPointColor = [NSColor whiteColor];
     NSTextView *fieldEditor = (NSTextView*)[self.window fieldEditor:YES
                                                              forObject:self];
     fieldEditor.insertionPointColor = insertionPointColor;
-    
+
 }
 
 -(BOOL)becomeFirstResponder
@@ -50,7 +75,7 @@ NSString* hifiBackgroundFilename = @"hifi_window";
     NSTextView *fieldEditor = (NSTextView*)[self.window fieldEditor:YES
                                                           forObject:self];
     fieldEditor.insertionPointColor = insertionPointColor;
-    
+
 }
 
 
@@ -62,6 +87,30 @@ NSString* hifiBackgroundFilename = @"hifi_window";
                                                           forObject:self];
     fieldEditor.insertionPointColor = insertionPointColor;
     return status;
+}
+
+- (BOOL) performKeyEquivalent:(NSEvent *)event
+{
+    if ([event type] == NSEventTypeKeyDown) {
+        if ([event modifierFlags] & NSEventModifierFlagCommand) {
+            if ([[event charactersIgnoringModifiers] isEqualToString:@"v"]) {
+                [NSApp sendAction:(NSSelectorFromString(@"paste:")) to:nil from:self];
+                return TRUE;
+            }
+
+            if ([[event charactersIgnoringModifiers] isEqualToString:@"c"]) {
+                [NSApp sendAction:(NSSelectorFromString(@"copy:")) to:nil from:self];
+                return TRUE;
+            }
+
+            if ([[event charactersIgnoringModifiers] isEqualToString:@"a"]) {
+                [NSApp sendAction:(NSSelectorFromString(@"selectAll:")) to:nil from:self];
+                return TRUE;
+            }
+        }
+    }
+
+    return [super performKeyEquivalent:event];
 }
 @end
 
@@ -77,7 +126,7 @@ NSString* hifiBackgroundFilename = @"hifi_window";
 
 - (void)awakeFromNib {
     [super awakeFromNib];
-    
+
     self.wantsLayer = YES;
     self.layer.backgroundColor = [NSColor blackColor].CGColor;
     self.layer.borderColor = [NSColor whiteColor].CGColor;
@@ -85,16 +134,16 @@ NSString* hifiBackgroundFilename = @"hifi_window";
     self.layer.masksToBounds = YES;
 
     _titleLayer = [[CATextLayer alloc] init];
-    
+
     CGSize buttonSize = self.frame.size;
     CGSize titleSize = [self.title sizeWithAttributes:@{NSFontAttributeName: self.font}];
     CGFloat x = (buttonSize.width - titleSize.width) / 2.0; // Title's origin x
     CGFloat y = (buttonSize.height - titleSize.height) / 2.0; // Title's origin y
-    
+
     self.titleLayer.frame = NSMakeRect(round(x), round(y), ceil(titleSize.width), ceil(titleSize.height));
     self.titleLayer.string = self.title;
     self.titleLayer.foregroundColor = [NSColor whiteColor].CGColor;
-    
+
     // TODO(huffman) Fix this to be dynamic based on screen?
     self.titleLayer.contentsScale = 2.0;
 
@@ -102,7 +151,7 @@ NSString* hifiBackgroundFilename = @"hifi_window";
     self.titleLayer.fontSize = self.font.pointSize;
     //self.titleLayer.allowsEdgeAntialiasing = YES;
     //self.titleLayer.allowsFontSubpixelQuantization = YES;
-    
+
     [self.layer addSublayer:self.titleLayer];
 }
 
