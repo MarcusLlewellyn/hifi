@@ -50,6 +50,8 @@ namespace scriptable {
      * @property {string} emissiveMap
      * @property {string} albedoMap
      * @property {string} opacityMap
+     * @property {string} opacityMapMode
+     * @property {number|string} opacityCutoff
      * @property {string} metallicMap
      * @property {string} specularMap
      * @property {string} roughnessMap
@@ -63,7 +65,9 @@ namespace scriptable {
      * @property {Mat4|string} texCoordTransform1
      * @property {string} lightmapParams
      * @property {string} materialParams
+     * @property {string} cullFaceMode
      * @property {boolean} defaultFallthrough
+     * @property {string} procedural
      */
     class ScriptableMaterial {
     public:
@@ -84,6 +88,8 @@ namespace scriptable {
         QString emissiveMap;
         QString albedoMap;
         QString opacityMap;
+        QString opacityMapMode;
+        float opacityCutoff;
         QString metallicMap;
         QString specularMap;
         QString roughnessMap;
@@ -94,9 +100,11 @@ namespace scriptable {
         QString lightMap;
         QString scatteringMap;
         std::array<glm::mat4, graphics::Material::NUM_TEXCOORD_TRANSFORMS> texCoordTransforms;
-
+        QString cullFaceMode;
         bool defaultFallthrough;
         std::unordered_map<uint, bool> propertyFallthroughs; // not actually exposed to script
+
+        QString procedural;
 
         graphics::MaterialKey key { 0 };
     };

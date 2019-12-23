@@ -56,8 +56,8 @@ namespace InteractiveWindowEnums {
     Q_NAMESPACE
 
     /**jsdoc
-     * A set of  flags controlling <code>InteractiveWindow</code> behavior. The value is constructed by using the 
-     * <code>|</code> (bitwise OR) operator on the individual flag values.<br />
+     * <p>A set of  flags controlling <code>InteractiveWindow</code> behavior. The value is constructed by using the 
+     * <code>|</code> (bitwise OR) operator on the individual flag values.</p>
      * <table>
      *   <thead>
      *     <tr><th>Flag Name</th><th>Value</th><th>Description</th></tr>
@@ -89,6 +89,15 @@ namespace InteractiveWindowEnums {
         RIGHT
     };
     Q_ENUM_NS(DockArea);
+
+    enum RelativePositionAnchor {
+        NO_ANCHOR,
+        TOP_LEFT,
+        TOP_RIGHT,
+        BOTTOM_RIGHT,
+        BOTTOM_LEFT
+    };
+    Q_ENUM_NS(RelativePositionAnchor);
 }
 
 using namespace InteractiveWindowEnums;
@@ -121,6 +130,8 @@ class InteractiveWindow : public QObject {
 
     Q_PROPERTY(QString title READ getTitle WRITE setTitle)
     Q_PROPERTY(glm::vec2 position READ getPosition WRITE setPosition)
+    Q_PROPERTY(RelativePositionAnchor relativePositionAnchor READ getRelativePositionAnchor WRITE setRelativePositionAnchor)
+    Q_PROPERTY(glm::vec2 relativePosition READ getRelativePosition WRITE setRelativePosition)
     Q_PROPERTY(glm::vec2 size READ getSize WRITE setSize)
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible)
     Q_PROPERTY(int presentationMode READ getPresentationMode WRITE setPresentationMode)
@@ -136,6 +147,21 @@ private:
 
     Q_INVOKABLE glm::vec2 getPosition() const;
     Q_INVOKABLE void setPosition(const glm::vec2& position);
+    
+    RelativePositionAnchor _relativePositionAnchor{ RelativePositionAnchor::NO_ANCHOR };
+    Q_INVOKABLE RelativePositionAnchor getRelativePositionAnchor() const;
+    Q_INVOKABLE void setRelativePositionAnchor(const RelativePositionAnchor& position);
+
+    // This "relative position" is relative to the "relative position anchor" and excludes the window frame.
+    // This position will ALWAYS include the geometry of a docked widget, if one is present.
+    glm::vec2 _relativePosition{ 0.0f, 0.0f };
+    Q_INVOKABLE glm::vec2 getRelativePosition() const;
+    Q_INVOKABLE void setRelativePosition(const glm::vec2& position);
+
+    Q_INVOKABLE void setPositionUsingRelativePositionAndAnchor(const QRect& mainWindowGeometry);
+
+    bool _isFullScreenWindow{ false };
+    Q_INVOKABLE void repositionAndResizeFullScreenWindow();
 
     Q_INVOKABLE glm::vec2 getSize() const;
     Q_INVOKABLE void setSize(const glm::vec2& size);
@@ -160,24 +186,24 @@ public slots:
      * @example <caption>Send and receive messages with a QML window.</caption>
      * // JavaScript file.
      * 
-     * var qmlWindow = Desktop.createWindow(Script.resolvePath("QMLWindow.qml"), {
-     *     title: "QML Window",
+     * var interactiveWindow = Desktop.createWindow(Script.resolvePath("InteractiveWindow.qml"), {
+     *     title: "Interactive Window",
      *     size: { x: 400, y: 300 }
      * });
      * 
-     * qmlWindow.fromQml.connect(function (message) {
+     * interactiveWindow.fromQml.connect(function (message) {
      *     print("Message received: " + message);
      * });
      * 
      * Script.setTimeout(function () {
-     *     qmlWindow.sendToQml("Hello world!");
+     *     interactiveWindow.sendToQml("Hello world!");
      * }, 2000);
      * 
      * Script.scriptEnding.connect(function () {
-     *     qmlWindow.close();
+     *     interactiveWindow.close();
      * });
      * @example
-     * // QML file, "QMLWindow.qml".
+     * // QML file, "InteractiveWindow.qml".
      * 
      * import QtQuick 2.5
      * import QtQuick.Controls 1.4
@@ -201,7 +227,7 @@ public slots:
 
     /**jsdoc
      * Sends a message to an embedded HTML web page. To receive the message, the HTML page's script must connect to the 
-     * <code>EventBridge</code> that is automatically provided to the script:
+     * <code>EventBridge</code> that is automatically provided for the script:
      * <pre class="prettyprint"><code>EventBridge.scriptEventReceived.connect(function(message) {
      *     ...
      * });</code></pre>
@@ -213,8 +239,8 @@ public slots:
 
     /**jsdoc
      * @function InteractiveWindow.emitWebEvent
-     * @param {object|string} message - The message.
-     * @deprecated This function is deprecated and will be removed from the API.
+     * @param {object|string} message - Message.
+     * @deprecated This function is deprecated and will be removed.
      */
     void emitWebEvent(const QVariant& webMessage);
 
@@ -292,9 +318,9 @@ signals:
 
     /**jsdoc
      * @function InteractiveWindow.scriptEventReceived
-     * @param {object} message - The message.
+     * @param {object} message - Message.
      * @returns {Signal}
-     * @deprecated This signal is deprecated and will be removed from the API.
+     * @deprecated This signal is deprecated and will be removed.
      */
     // InteractiveWindow content may include WebView requiring EventBridge.
     void scriptEventReceived(const QVariant& message);
@@ -311,15 +337,15 @@ signals:
 protected slots:
     /**jsdoc
      * @function InteractiveWindow.qmlToScript
-     * @param {object} message
-     * @returns {Signal}
-     * @deprecated This signal is deprecated and will be removed from the API.
+     * @param {object} message - Message.
+     * @deprecated This method is deprecated and will be removed.
      */
     void qmlToScript(const QVariant& message);
 
     void forwardKeyPressEvent(int key, int modifiers);
     void forwardKeyReleaseEvent(int key, int modifiers);
     void emitMainWindowResizeEvent();
+    void onMainWindowGeometryChanged(QRect geometry);
 
 private:
     std::shared_ptr<QmlWindowProxy> _qmlWindowProxy;

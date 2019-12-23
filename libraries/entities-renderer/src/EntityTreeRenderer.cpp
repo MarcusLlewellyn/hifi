@@ -96,6 +96,21 @@ EntityTreeRenderer::EntityTreeRenderer(bool wantScripts, AbstractViewStateInterf
     connect(entityScriptingInterface, &EntityScriptingInterface::mousePressOnEntity, this, handlePointerEvent);
     connect(entityScriptingInterface, &EntityScriptingInterface::mouseMoveOnEntity, this, handlePointerEvent);
     connect(entityScriptingInterface, &EntityScriptingInterface::mouseReleaseOnEntity, this, handlePointerEvent);
+    // Handle mouse-clicking or laser-clicking on entities with the `href` property set
+    connect(entityScriptingInterface, &EntityScriptingInterface::mousePressOnEntity, this, [&](const QUuid& entityID, const PointerEvent& event) {
+        if (!EntityTree::areEntityClicksCaptured() && (event.getButtons() & PointerEvent::PrimaryButton)) {
+            auto entity = getEntity(entityID);
+            if (!entity) {
+                return;
+            }
+            auto properties = entity->getProperties();
+            QString urlString = properties.getHref();
+            QUrl url = QUrl(urlString, QUrl::StrictMode);
+            if (url.isValid() && !url.isEmpty()) {
+                DependencyManager::get<AddressManager>()->handleLookupString(urlString);
+            }
+        }
+    });
     connect(entityScriptingInterface, &EntityScriptingInterface::hoverEnterEntity, this, [&](const QUuid& entityID, const PointerEvent& event) {
         std::shared_ptr<render::entities::WebEntityRenderer> thisEntity;
         auto entity = getEntity(entityID);
@@ -153,47 +168,52 @@ void EntityTreeRenderer::resetEntitiesScriptEngine() {
     entityScriptingInterface->setEntitiesScriptEngine(entitiesScriptEngineProvider);
 
     // Connect mouse events to entity script callbacks
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::mousePressOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "mousePressOnEntity", event);
-    });
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::mouseDoublePressOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseDoublePressOnEntity", event);
-    });
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::mouseMoveOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseMoveOnEntity", event);
-        // FIXME: this is a duplicate of mouseMoveOnEntity, but it seems like some scripts might use this naming
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseMoveEvent", event);
-    });
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::mouseReleaseOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseReleaseOnEntity", event);
-    });
+    if (!_mouseAndPreloadSignalHandlersConnected) {
+    
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::mousePressOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "mousePressOnEntity", event);
+        });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::mouseDoublePressOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseDoublePressOnEntity", event);
+        });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::mouseMoveOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseMoveOnEntity", event);
+            // FIXME: this is a duplicate of mouseMoveOnEntity, but it seems like some scripts might use this naming
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseMoveEvent", event);
+        });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::mouseReleaseOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "mouseReleaseOnEntity", event);
+        });
 
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::clickDownOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "clickDownOnEntity", event);
-    });
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::holdingClickOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "holdingClickOnEntity", event);
-    });
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::clickReleaseOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "clickReleaseOnEntity", event);
-    });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::clickDownOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "clickDownOnEntity", event);
+        });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::holdingClickOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "holdingClickOnEntity", event);
+        });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::clickReleaseOnEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "clickReleaseOnEntity", event);
+        });
 
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::hoverEnterEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "hoverEnterEntity", event);
-    });
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::hoverOverEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "hoverOverEntity", event);
-    });
-    connect(entityScriptingInterface.data(), &EntityScriptingInterface::hoverLeaveEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
-        _entitiesScriptEngine->callEntityScriptMethod(entityID, "hoverLeaveEntity", event);
-    });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::hoverEnterEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "hoverEnterEntity", event);
+        });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::hoverOverEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "hoverOverEntity", event);
+        });
+        connect(entityScriptingInterface.data(), &EntityScriptingInterface::hoverLeaveEntity, _entitiesScriptEngine.data(), [&](const EntityItemID& entityID, const PointerEvent& event) {
+            _entitiesScriptEngine->callEntityScriptMethod(entityID, "hoverLeaveEntity", event);
+        });
 
-    connect(_entitiesScriptEngine.data(), &ScriptEngine::entityScriptPreloadFinished, [&](const EntityItemID& entityID) {
-        EntityItemPointer entity = getTree()->findEntityByID(entityID);
-        if (entity) {
-            entity->setScriptHasFinishedPreload(true);
-        }
-    });
+        connect(_entitiesScriptEngine.data(), &ScriptEngine::entityScriptPreloadFinished, [&](const EntityItemID& entityID) {
+            EntityItemPointer entity = getTree()->findEntityByID(entityID);
+            if (entity) {
+                entity->setScriptHasFinishedPreload(true);
+            }
+        });
+
+        _mouseAndPreloadSignalHandlersConnected = true;
+    }
 }
 
 void EntityTreeRenderer::stopDomainAndNonOwnedEntities() {
@@ -206,7 +226,7 @@ void EntityTreeRenderer::stopDomainAndNonOwnedEntities() {
             EntityItemPointer entityItem = getTree()->findEntityByEntityItemID(entityID);
 
             if (entityItem && !entityItem->getScript().isEmpty()) {
-                if (!(entityItem->isLocalEntity() || (entityItem->isAvatarEntity() && entityItem->getOwningAvatarID() == getTree()->getMyAvatarSessionUUID()))) {
+                if (!(entityItem->isLocalEntity() || entityItem->isMyAvatarEntity())) {
                     if (_currentEntitiesInside.contains(entityID)) {
                         _entitiesScriptEngine->callEntityScriptMethod(entityID, "leaveEntity");
                     }
@@ -220,7 +240,6 @@ void EntityTreeRenderer::stopDomainAndNonOwnedEntities() {
 void EntityTreeRenderer::clearDomainAndNonOwnedEntities() {
     stopDomainAndNonOwnedEntities();
 
-    auto sessionUUID = getTree()->getMyAvatarSessionUUID();
     std::unordered_map<EntityItemID, EntityRendererPointer> savedEntities;
     std::unordered_set<EntityRendererPointer> savedRenderables;
     // remove all entities from the scene
@@ -229,7 +248,7 @@ void EntityTreeRenderer::clearDomainAndNonOwnedEntities() {
         for (const auto& entry :  _entitiesInScene) {
             const auto& renderer = entry.second;
             const EntityItemPointer& entityItem = renderer->getEntity();
-            if (!(entityItem->isLocalEntity() || (entityItem->isAvatarEntity() && entityItem->getOwningAvatarID() == sessionUUID))) {
+            if (!(entityItem->isLocalEntity() || entityItem->isMyAvatarEntity())) {
                 fadeOutRenderable(renderer);
             } else {
                 savedEntities[entry.first] = entry.second;
@@ -241,7 +260,7 @@ void EntityTreeRenderer::clearDomainAndNonOwnedEntities() {
     _renderablesToUpdate = savedRenderables;
     _entitiesInScene = savedEntities;
 
-    if (_layeredZones.clearDomainAndNonOwnedZones(sessionUUID)) {
+    if (_layeredZones.clearDomainAndNonOwnedZones()) {
         applyLayeredZones();
     }
 
@@ -663,7 +682,7 @@ void EntityTreeRenderer::leaveDomainAndNonOwnedEntities() {
         QSet<EntityItemID> currentEntitiesInsideToSave;
         foreach (const EntityItemID& entityID, _currentEntitiesInside) {
             EntityItemPointer entityItem = getTree()->findEntityByEntityItemID(entityID);
-            if (!(entityItem->isLocalEntity() || (entityItem->isAvatarEntity() && entityItem->getOwningAvatarID() == getTree()->getMyAvatarSessionUUID()))) {
+            if (!(entityItem->isLocalEntity() || entityItem->isMyAvatarEntity())) {
                 emit leaveEntity(entityID);
                 if (_entitiesScriptEngine) {
                     _entitiesScriptEngine->callEntityScriptMethod(entityID, "leaveEntity");
@@ -800,15 +819,6 @@ QUuid EntityTreeRenderer::mousePressEvent(QMouseEvent* event) {
     RayToEntityIntersectionResult rayPickResult = _getPrevRayPickResultOperator(_mouseRayPickID);
     EntityItemPointer entity;
     if (rayPickResult.intersects && (entity = getTree()->findEntityByID(rayPickResult.entityID))) {
-        if (!EntityTree::areEntityClicksCaptured()) {
-            auto properties = entity->getProperties();
-            QString urlString = properties.getHref();
-            QUrl url = QUrl(urlString, QUrl::StrictMode);
-            if (url.isValid() && !url.isEmpty()) {
-                DependencyManager::get<AddressManager>()->handleLookupString(urlString);
-            }
-        }
-
         glm::vec2 pos2D = projectOntoEntityXYPlane(entity, ray, rayPickResult);
         PointerEvent pointerEvent(PointerEvent::Press, PointerManager::MOUSE_POINTER_ID,
                                   pos2D, rayPickResult.intersection,
@@ -1204,13 +1214,13 @@ void EntityTreeRenderer::updateZone(const EntityItemID& id) {
     }
 }
 
-bool EntityTreeRenderer::LayeredZones::clearDomainAndNonOwnedZones(const QUuid& sessionUUID) {
+bool EntityTreeRenderer::LayeredZones::clearDomainAndNonOwnedZones() {
     bool zonesChanged = false;
 
     auto it = begin();
     while (it != end()) {
         auto zone = it->zone.lock();
-        if (!zone || !(zone->isLocalEntity() || (zone->isAvatarEntity() && zone->getOwningAvatarID() == sessionUUID))) {
+        if (!zone || !(zone->isLocalEntity() || zone->isMyAvatarEntity())) {
             zonesChanged = true;
             it = erase(it);
         } else {
@@ -1349,6 +1359,10 @@ EntityItemPointer EntityTreeRenderer::getEntity(const EntityItemID& id) {
         result = renderable->getEntity();
     }
     return result;
+}
+
+void EntityTreeRenderer::deleteEntity(const EntityItemID& id) const {
+    DependencyManager::get<EntityScriptingInterface>()->deleteEntity(id);
 }
 
 void EntityTreeRenderer::onEntityChanged(const EntityItemID& id) {

@@ -21,11 +21,28 @@
 #include <gpu/Batch.h>
 #include <material-networking/ShaderCache.h>
 #include <material-networking/TextureCache.h>
+#include "ProceduralMaterialCache.h"
 
 using UniformLambdas = std::list<std::function<void(gpu::Batch& batch)>>;
 const size_t MAX_PROCEDURAL_TEXTURE_CHANNELS{ 4 };
 
+/**jsdoc
 
+ * An object containing user-defined uniforms for communicating data to shaders.
+ * @typedef {object} ProceduralUniforms
+ */
+
+/**jsdoc
+ * The data used to define a Procedural shader material.
+ * @typedef {object} ProceduralData
+ * @property {number} version=1 - The version of the procedural shader.
+ * @property {string} vertexShaderURL - A link to a vertex shader.  Currently, only GLSL shaders are supported.  The shader must implement a different method depending on the version.
+ *     If a procedural material contains a vertex shader, the bounding box of the material entity is used to cull the object to which the material is applied.
+ * @property {string} fragmentShaderURL - A link to a fragment shader.  Currently, only GLSL shaders are supported.  The shader must implement a different method depending on the version.
+ *     <code>shaderUrl</code> is an alias.
+ * @property {string[]} channels=[] - An array of input texture URLs.  Currently, up to 4 are supported.
+ * @property {ProceduralUniforms} uniforms={} - A {@link ProceduralUniforms} object containing all the custom uniforms to be passed to the shader.
+ */
 
 struct ProceduralData {
     static QJsonValue getProceduralData(const QString& proceduralJson);
@@ -34,7 +51,8 @@ struct ProceduralData {
 
     // Rendering object descriptions, from userData
     uint8_t version { 0 };
-    QUrl shaderUrl;
+    QUrl fragmentShaderUrl;
+    QUrl vertexShaderUrl;
     QJsonObject uniforms;
     QJsonArray channels;
 };
@@ -43,19 +61,23 @@ class ProceduralProgramKey {
 public:
     enum FlagBit {
         IS_TRANSPARENT = 0,
+        IS_SKINNED,
+        IS_SKINNED_DQ,
+
         NUM_FLAGS
     };
-
     typedef std::bitset<NUM_FLAGS> Flags;
 
     Flags _flags;
 
     bool isTransparent() const { return _flags[IS_TRANSPARENT]; }
+    bool isSkinned() const { return _flags[IS_SKINNED]; }
+    bool isSkinnedDQ() const { return _flags[IS_SKINNED_DQ]; }
 
-    ProceduralProgramKey(bool transparent = false) {
-        if (transparent) {
-            _flags.set(IS_TRANSPARENT);
-        }
+    ProceduralProgramKey(bool transparent = false, bool isSkinned = false, bool isSkinnedDQ = false) {
+        _flags.set(IS_TRANSPARENT, transparent);
+        _flags.set(IS_SKINNED, isSkinned);
+        _flags.set(IS_SKINNED_DQ, isSkinnedDQ);
     }
 };
 namespace std {
@@ -91,13 +113,22 @@ public:
     void setIsFading(bool isFading) { _isFading = isFading; }
     void setDoesFade(bool doesFade) { _doesFade = doesFade; }
 
+    bool hasVertexShader() const;
+    void setBoundOperator(const std::function<AABox()>& boundOperator) { _boundOperator = boundOperator; }
+    bool hasBoundOperator() const { return (bool)_boundOperator; }
+    AABox getBound() { return _boundOperator(); }
+
     gpu::Shader::Source _vertexSource;
+    gpu::Shader::Source _vertexSourceSkinned;
+    gpu::Shader::Source _vertexSourceSkinnedDQ;
     gpu::Shader::Source _opaqueFragmentSource;
     gpu::Shader::Source _transparentFragmentSource;
 
     gpu::StatePointer _opaqueState { std::make_shared<gpu::State>() };
     gpu::StatePointer _transparentState { std::make_shared<gpu::State>() };
 
+    static std::function<void(gpu::StatePointer)> opaqueStencil;
+    static std::function<void(gpu::StatePointer)> transparentStencil;
 
 protected:
     // DO NOT TOUCH
@@ -133,11 +164,15 @@ protected:
     uint64_t _firstCompile { 0 };
     int32_t _frameCount { 0 };
 
-    // Rendering object descriptions, from userData
-    QString _shaderSource;
-    QString _shaderPath;
-    uint64_t _shaderModified { 0 };
-    NetworkShaderPointer _networkShader;
+    // Rendering object descriptions
+    QString _vertexShaderSource;
+    QString _vertexShaderPath;
+    uint64_t _vertexShaderModified { 0 };
+    NetworkShaderPointer _networkVertexShader;
+    QString _fragmentShaderSource;
+    QString _fragmentShaderPath;
+    uint64_t _fragmentShaderModified { 0 };
+    NetworkShaderPointer _networkFragmentShader;
     bool _shaderDirty { true };
     bool _uniformsDirty { true };
 
@@ -146,8 +181,6 @@ protected:
     NetworkTexturePointer _channels[MAX_PROCEDURAL_TEXTURE_CHANNELS];
 
     std::unordered_map<ProceduralProgramKey, gpu::PipelinePointer> _proceduralPipelines;
-
-    gpu::ShaderPointer _vertexShader;
 
     StandardInputs _standardInputs;
     gpu::BufferPointer _standardInputsBuffer;
@@ -165,5 +198,49 @@ private:
     mutable bool _hasStartedFade { false };
     mutable bool _isFading { false };
     bool _doesFade { true };
+    ProceduralProgramKey _prevKey;
+
+    std::function<AABox()> _boundOperator { nullptr };
+
     mutable std::mutex _mutex;
 };
+
+namespace graphics {
+
+class ProceduralMaterial : public NetworkMaterial {
+public:
+    ProceduralMaterial() : NetworkMaterial() { initializeProcedural(); }
+    ProceduralMaterial(const NetworkMaterial& material) : NetworkMaterial(material) { initializeProcedural(); }
+
+    bool isProcedural() const override { return true; }
+    bool isEnabled() const override { return _procedural.isEnabled(); }
+    bool isReady() const override { return _procedural.isReady(); }
+    QString getProceduralString() const override { return _proceduralString; }
+
+    void setProceduralData(const QString& data) {
+        _proceduralString = data;
+        _procedural.setProceduralData(ProceduralData::parse(data));
+    }
+    glm::vec4 getColor(const glm::vec4& color) const { return _procedural.getColor(color); }
+    bool isFading() const { return _procedural.isFading(); }
+    void setIsFading(bool isFading) { _procedural.setIsFading(isFading); }
+    uint64_t getFadeStartTime() const { return _procedural.getFadeStartTime(); }
+    bool hasVertexShader() const { return _procedural.hasVertexShader(); }
+    void prepare(gpu::Batch& batch, const glm::vec3& position, const glm::vec3& size, const glm::quat& orientation,
+                 const uint64_t& created, const ProceduralProgramKey key = ProceduralProgramKey()) {
+        _procedural.prepare(batch, position, size, orientation, created, key);
+    }
+
+    void initializeProcedural();
+
+    void setBoundOperator(const std::function<AABox()>& boundOperator) { _procedural.setBoundOperator(boundOperator); }
+    bool hasBoundOperator() const { return _procedural.hasBoundOperator(); }
+    AABox getBound() { return _procedural.getBound(); }
+
+private:
+    QString _proceduralString;
+    Procedural _procedural;
+};
+typedef std::shared_ptr<ProceduralMaterial> ProceduralMaterialPointer;
+
+}

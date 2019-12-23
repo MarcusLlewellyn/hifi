@@ -267,6 +267,7 @@ void OtherAvatar::simulate(float deltaTime, bool inView) {
                 _skeletonModel->getRig().computeExternalPoses(rootTransform);
                 _jointDataSimulationRate.increment();
 
+                head->simulate(deltaTime);
                 _skeletonModel->simulate(deltaTime, true);
 
                 locationChanged(); // joints changed, so if there are any children, update them.
@@ -277,9 +278,11 @@ void OtherAvatar::simulate(float deltaTime, bool inView) {
                     headPosition = getWorldPosition();
                 }
                 head->setPosition(headPosition);
+            } else {
+                head->simulate(deltaTime);
+                _skeletonModel->simulate(deltaTime, false);
             }
             head->setScale(getModelScale());
-            head->simulate(deltaTime);
             relayJointDataToChildren();
         } else {
             // a non-full update is still required so that the position, rotation, scale and bounds of the skeletonModel are updated.
@@ -558,9 +561,18 @@ void OtherAvatar::handleChangedAvatarEntityData() {
             _avatarEntitiesLock.withReadLock([&] {
                 packedAvatarEntityData = _packedAvatarEntityData;
             });
-            foreach (auto entityID, recentlyRemovedAvatarEntities) {
-                if (!packedAvatarEntityData.contains(entityID)) {
-                    entityTree->deleteEntity(entityID, true, true);
+            if (!recentlyRemovedAvatarEntities.empty()) {
+                std::vector<EntityItemID> idsToDelete;
+                idsToDelete.reserve(recentlyRemovedAvatarEntities.size());
+                foreach (auto entityID, recentlyRemovedAvatarEntities) {
+                    if (!packedAvatarEntityData.contains(entityID)) {
+                        idsToDelete.push_back(entityID);
+                    }
+                }
+                if (!idsToDelete.empty()) {
+                    bool force = true;
+                    bool ignoreWarnings = true;
+                    entityTree->deleteEntitiesByID(idsToDelete, force, ignoreWarnings);
                 }
             }
 

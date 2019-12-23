@@ -26,10 +26,9 @@ exports.handlers = {
             '../../assignment-client/src/octree',
             '../../interface/src',
             '../../interface/src/assets',
-            '../../interface/src/audio',
+            //'../../interface/src/audio', Exclude AudioScope API from output.
             '../../interface/src/avatar',
             '../../interface/src/commerce',
-            '../../interface/src/devices',
             '../../interface/src/java',
             '../../interface/src/networking',
             '../../interface/src/raypick',
@@ -58,13 +57,13 @@ exports.handlers = {
             '../../libraries/physics/src',
             '../../libraries/platform/src/platform/backend',
             '../../libraries/plugins/src/plugins',
+            '../../libraries/procedural/src/procedural',
             '../../libraries/pointers/src',
             '../../libraries/render-utils/src',
             '../../libraries/script-engine/src',
             '../../libraries/shared/src',
             '../../libraries/shared/src/shared',
             '../../libraries/task/src/task',
-            '../../libraries/trackers/src/trackers',
             '../../libraries/ui/src',
             '../../libraries/ui/src/ui',
             '../../plugins/oculus/src',
@@ -125,7 +124,7 @@ exports.handlers = {
             if (rows.length > 0) {
                 var availableIn = "<p class='availableIn'><b>Supported Script Types:</b> " + rows.join(" &bull; ") + "</p>";
              
-                e.doclet.description = (e.doclet.description ? e.doclet.description : "") + availableIn;
+                e.doclet.description = availableIn + (e.doclet.description ? e.doclet.description : "");
             }            
         }
 

@@ -52,8 +52,8 @@ function calcSpawnInfo(hand, landscape) {
 
     var LEFT_HAND = Controller.Standard.LeftHand;
     var sensorToWorldScale = MyAvatar.sensorToWorldScale;
-    var headPos = (HMD.active && Camera.mode === "first person") ? HMD.position : Camera.position;
-    var headRot = Quat.cancelOutRollAndPitch((HMD.active && Camera.mode === "first person") ?
+    var headPos = (HMD.active && (Camera.mode === "first person" || Camera.mode === "first person look at")) ? HMD.position : Camera.position;
+    var headRot = Quat.cancelOutRollAndPitch((HMD.active && (Camera.mode === "first person" || Camera.mode === "first person look at")) ?
         HMD.orientation : Camera.orientation);
 
     var right = Quat.getRight(headRot);
@@ -82,9 +82,7 @@ function calcSpawnInfo(hand, landscape) {
 cleanUpOldMaterialEntities = function() {
     var avatarEntityData = MyAvatar.getAvatarEntityData();
     for (var entityID in avatarEntityData) {
-        var entityName = Entities.getEntityProperties(entityID, ["name"]).name;
-
-        if (entityName === TABLET_MATERIAL_ENTITY_NAME) {
+        if (avatarEntityData[entityID].name === TABLET_MATERIAL_ENTITY_NAME) {
             Entities.deleteEntity(entityID);
         }
     }

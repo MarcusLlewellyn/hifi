@@ -299,6 +299,16 @@ void EntityItemProperties::setAvatarPriorityFromString(const QString& mode) {
     }
 }
 
+QString EntityItemProperties::getScreenshareAsString() const { return getComponentModeAsString(_screenshare); }
+void EntityItemProperties::setScreenshareFromString(const QString& mode) {
+    auto modeItr = stringToComponentMode.find(mode.toLower());
+    if (modeItr != stringToComponentMode.end()) {
+        _screenshare = modeItr.value();
+        _screenshareChanged = true;
+    }
+}
+
+
 inline void addTextEffect(QHash<QString, TextEffect>& lookup, TextEffect effect) { lookup[TextEffectHelpers::getNameForTextEffect(effect)] = effect; }
 const QHash<QString, TextEffect> stringToTextEffectLookup = [] {
     QHash<QString, TextEffect> toReturn;
@@ -566,6 +576,7 @@ EntityPropertyFlags EntityItemProperties::getChangedProperties() const {
     CHECK_PROPERTY_CHANGE(PROP_HAZE_MODE, hazeMode);
     CHECK_PROPERTY_CHANGE(PROP_BLOOM_MODE, bloomMode);
     CHECK_PROPERTY_CHANGE(PROP_AVATAR_PRIORITY, avatarPriority);
+    CHECK_PROPERTY_CHANGE(PROP_SCREENSHARE, screenshare);
 
     // Polyvox
     CHECK_PROPERTY_CHANGE(PROP_VOXEL_VOLUME_SIZE, voxelVolumeSize);
@@ -706,15 +717,11 @@ EntityPropertyFlags EntityItemProperties::getChangedProperties() const {
  *
  * @property {Vec3} gravity=0,0,0 - The acceleration due to gravity in m/s<sup>2</sup> that the entity should move with, in 
  *     world coordinates. Use a value of <code>{ x: 0, y: -9.8, z: 0 }</code> to simulate Earth's gravity. Gravity is applied 
- *     to an entity's motion only if its <code>dynamic</code> property is <code>true</code>. The <code>gravity</code> value is 
- *     applied in addition to the <code>acceleration</code> value.
+ *     to an entity's motion only if its <code>dynamic</code> property is <code>true</code>.
  *     <p>If changing an entity's <code>gravity</code> from {@link Vec3(0)|Vec3.ZERO}, you need to give it a small 
  *     <code>velocity</code> in order to kick off physics simulation.</p>
- * @property {Vec3} acceleration=0,0,0 - A general acceleration in m/s<sup>2</sup> that the entity should move with, in world 
- *     coordinates. The acceleration is applied to an entity's motion only if its <code>dynamic</code> property is 
- *     <code>true</code>. The <code>acceleration</code> value is applied in addition to the <code>gravity</code> value.
- *     <p>If changing an entity's <code>acceleration</code> from {@link Vec3(0)|Vec3.ZERO}, you need to give it a small 
- *     <code>velocity</code> in order to kick off physics simulation.<p>
+ * @property {Vec3} acceleration - The current, measured acceleration of the entity, in m/s<sup>2</sup>.
+ *     <p class="important">Deprecated: This property is deprecated and will be removed.</p>
  * @property {number} restitution=0.5 - The "bounciness" of an entity when it collides, range <code>0.0</code> &ndash; 
  *     <code>0.99</code>. The higher the value, the more bouncy.
  * @property {number} friction=0.5 - How much an entity slows down when it's moving against another, range <code>0.0</code> 
@@ -944,7 +951,7 @@ EntityPropertyFlags EntityItemProperties::getChangedProperties() const {
  * @property {number} materialMappingRot=0 - How much to rotate the material within the parent's UV-space, in degrees.
  * @property {boolean} materialRepeat=true - <code>true</code> if the material repeats, <code>false</code> if it doesn't. If 
  *     <code>false</code>, fragments outside of texCoord 0 &ndash; 1 will be discarded. Works in both <code>"uv"</code> and 
- *     </code>"projected"</code> modes.
+ *     <code>"projected"</code> modes.
  * @example <caption>Color a sphere using a Material entity.</caption>
  * var entityID = Entities.addEntity({
  *     type: "Sphere",
@@ -1217,10 +1224,10 @@ EntityPropertyFlags EntityItemProperties::getChangedProperties() const {
  *     <code>dimensions / voxelVolumesize</code>.
  * @property {string} voxelData="ABAAEAAQAAAAHgAAEAB42u3BAQ0AAADCoPdPbQ8HFAAAAPBuEAAAAQ==" - Base-64 encoded compressed dump of 
  *     the PolyVox data. This property is typically not used in scripts directly; rather, functions that manipulate a PolyVox 
- *     entity update it.<br />
- *     The size of this property increases with the size and complexity of the PolyVox entity, with the size depending on how 
+ *     entity update it.
+ *     <p>The size of this property increases with the size and complexity of the PolyVox entity, with the size depending on how 
  *     the particular entity's voxels compress. Because this property value has to fit within a High Fidelity datagram packet, 
- *     there is a limit to the size and complexity of a PolyVox entity; edits which would result in an overflow are rejected.
+ *     there is a limit to the size and complexity of a PolyVox entity; edits which would result in an overflow are rejected.</p>
  * @property {Entities.PolyVoxSurfaceStyle} voxelSurfaceStyle=2 - The style of rendering the voxels' surface and how 
  *     neighboring PolyVox entities are joined.
  * @property {string} xTextureURL="" - The URL of the texture to map to surfaces perpendicular to the entity's local x-axis. 
@@ -1309,7 +1316,7 @@ EntityPropertyFlags EntityItemProperties::getChangedProperties() const {
  * @property {number} bottomMargin=0.0 - The bottom margin, in meters.
  * @property {boolean} unlit=false - <code>true</code> if the entity is unaffected by lighting, <code>false</code> if it is lit 
  *     by the key light and local lights.
- * @property {string} font="" - The font to render the text with. It can be one of the following: <code>"Courier"</code,
+ * @property {string} font="" - The font to render the text with. It can be one of the following: <code>"Courier"</code>,
  *     <code>"Inconsolata"</code>, <code>"Roboto"</code>, <code>"Timeless"</code>, or a path to a .sdff file.
  * @property {Entities.TextEffect} textEffect="none" - The effect that is applied to the text.
  * @property {Color} textEffectColor=255,255,255 - The color of the effect.
@@ -1432,6 +1439,8 @@ EntityPropertyFlags EntityItemProperties::getChangedProperties() const {
  *
  * @property {Entities.AvatarPriorityMode} avatarPriority="inherit" - Configures the priority of updates from avatars in the 
  *     zone to other clients.
+ *
+ * @property {Entities.ScreenshareMode} screenshare="inherit" - Configures a zone for screen-sharing.
  *
  * @example <caption>Create a zone that casts a red key light along the x-axis.</caption>
  * var zone = Entities.addEntity({
@@ -1783,6 +1792,7 @@ QScriptValue EntityItemProperties::copyToScriptValue(QScriptEngine* engine, bool
         COPY_PROPERTY_TO_QSCRIPTVALUE_GETTER(PROP_HAZE_MODE, hazeMode, getHazeModeAsString());
         COPY_PROPERTY_TO_QSCRIPTVALUE_GETTER(PROP_BLOOM_MODE, bloomMode, getBloomModeAsString());
         COPY_PROPERTY_TO_QSCRIPTVALUE_GETTER(PROP_AVATAR_PRIORITY, avatarPriority, getAvatarPriorityAsString());
+        COPY_PROPERTY_TO_QSCRIPTVALUE_GETTER(PROP_SCREENSHARE, screenshare, getScreenshareAsString());
     }
 
     // Web only
@@ -2154,6 +2164,7 @@ void EntityItemProperties::copyFromScriptValue(const QScriptValue& object, bool 
     COPY_PROPERTY_FROM_QSCRIPTVALUE_ENUM(hazeMode, HazeMode);
     COPY_PROPERTY_FROM_QSCRIPTVALUE_ENUM(bloomMode, BloomMode);
     COPY_PROPERTY_FROM_QSCRIPTVALUE_ENUM(avatarPriority, AvatarPriority);
+    COPY_PROPERTY_FROM_QSCRIPTVALUE_ENUM(screenshare, Screenshare);
 
     // Polyvox
     COPY_PROPERTY_FROM_QSCRIPTVALUE(voxelVolumeSize, vec3, setVoxelVolumeSize);
@@ -2442,6 +2453,7 @@ void EntityItemProperties::merge(const EntityItemProperties& other) {
     COPY_PROPERTY_IF_CHANGED(hazeMode);
     COPY_PROPERTY_IF_CHANGED(bloomMode);
     COPY_PROPERTY_IF_CHANGED(avatarPriority);
+    COPY_PROPERTY_IF_CHANGED(screenshare);
 
     // Polyvox
     COPY_PROPERTY_IF_CHANGED(voxelVolumeSize);
@@ -2838,6 +2850,7 @@ bool EntityItemProperties::getPropertyInfo(const QString& propertyName, EntityPr
         ADD_PROPERTY_TO_MAP(PROP_HAZE_MODE, HazeMode, hazeMode, uint32_t);
         ADD_PROPERTY_TO_MAP(PROP_BLOOM_MODE, BloomMode, bloomMode, uint32_t);
         ADD_PROPERTY_TO_MAP(PROP_AVATAR_PRIORITY, AvatarPriority, avatarPriority, uint32_t);
+        ADD_PROPERTY_TO_MAP(PROP_SCREENSHARE, Screenshare, screenshare, uint32_t);
 
         // Polyvox
         ADD_PROPERTY_TO_MAP(PROP_VOXEL_VOLUME_SIZE, VoxelVolumeSize, voxelVolumeSize, vec3);
@@ -3256,6 +3269,7 @@ OctreeElement::AppendState EntityItemProperties::encodeEntityEditPacket(PacketTy
                 APPEND_ENTITY_PROPERTY(PROP_HAZE_MODE, (uint32_t)properties.getHazeMode());
                 APPEND_ENTITY_PROPERTY(PROP_BLOOM_MODE, (uint32_t)properties.getBloomMode());
                 APPEND_ENTITY_PROPERTY(PROP_AVATAR_PRIORITY, (uint32_t)properties.getAvatarPriority());
+                APPEND_ENTITY_PROPERTY(PROP_SCREENSHARE, (uint32_t)properties.getScreenshare());
             }
 
             if (properties.getType() == EntityTypes::PolyVox) {
@@ -3730,6 +3744,7 @@ bool EntityItemProperties::decodeEntityEditPacket(const unsigned char* data, int
         READ_ENTITY_PROPERTY_TO_PROPERTIES(PROP_HAZE_MODE, uint32_t, setHazeMode);
         READ_ENTITY_PROPERTY_TO_PROPERTIES(PROP_BLOOM_MODE, uint32_t, setBloomMode);
         READ_ENTITY_PROPERTY_TO_PROPERTIES(PROP_AVATAR_PRIORITY, uint32_t, setAvatarPriority);
+        READ_ENTITY_PROPERTY_TO_PROPERTIES(PROP_SCREENSHARE, uint32_t, setScreenshare);
     }
 
     if (properties.getType() == EntityTypes::PolyVox) {
@@ -3940,7 +3955,7 @@ bool EntityItemProperties::decodeCloneEntityMessage(const QByteArray& buffer, in
     processedBytes = 0;
 
     if (NUM_BYTES_RFC4122_UUID * 2 > packetLength) {
-        qCDebug(entities) << "EntityItemProperties::processEraseMessageDetails().... bailing because not enough bytes in buffer";
+        qCDebug(entities) << "EntityItemProperties::decodeCloneEntityMessage().... bailing because not enough bytes in buffer";
         return false; // bail to prevent buffer overflow
     }
 
@@ -4121,6 +4136,7 @@ void EntityItemProperties::markAllChanged() {
     _hazeModeChanged = true;
     _bloomModeChanged = true;
     _avatarPriorityChanged = true;
+    _screenshareChanged = true;
 
     // Polyvox
     _voxelVolumeSizeChanged = true;
@@ -4743,6 +4759,9 @@ QList<QString> EntityItemProperties::listChangedProperties() {
     if (avatarPriorityChanged()) {
         out += "avatarPriority";
     }
+    if (screenshareChanged()) {
+        out += "screenshare";
+    }
 
     // Polyvox
     if (voxelVolumeSizeChanged()) {
@@ -5075,8 +5094,9 @@ void EntityItemProperties::convertToCloneProperties(const EntityItemID& entityID
         setEntityHostType(entity::HostType::LOCAL);
         setCollisionless(true);
     }
-    setCreated(usecTimestampNow());
-    setLastEdited(usecTimestampNow());
+    uint64_t now = usecTimestampNow();
+    setCreated(now);
+    setLastEdited(now);
     setCloneable(ENTITY_ITEM_DEFAULT_CLONEABLE);
     setCloneLifetime(ENTITY_ITEM_DEFAULT_CLONE_LIFETIME);
     setCloneLimit(ENTITY_ITEM_DEFAULT_CLONE_LIMIT);
@@ -5100,10 +5120,13 @@ bool EntityItemProperties::blobToProperties(QScriptEngine& scriptEngine, const Q
     return true;
 }
 
-void EntityItemProperties::propertiesToBlob(QScriptEngine& scriptEngine, const QUuid& myAvatarID, const EntityItemProperties& properties, QByteArray& blob) {
+void EntityItemProperties::propertiesToBlob(QScriptEngine& scriptEngine, const QUuid& myAvatarID, 
+            const EntityItemProperties& properties, QByteArray& blob, bool allProperties) {
     // DANGER: this method is NOT efficient.
     // begin recipe for extracting unfortunately-formatted-binary-blob from EntityItem
-    QScriptValue scriptValue = EntityItemNonDefaultPropertiesToScriptValue(&scriptEngine, properties);
+    QScriptValue scriptValue = allProperties
+        ? EntityItemPropertiesToScriptValue(&scriptEngine, properties)
+        : EntityItemNonDefaultPropertiesToScriptValue(&scriptEngine, properties);
     QVariant variantProperties = scriptValue.toVariant();
     QJsonDocument jsonProperties = QJsonDocument::fromVariant(variantProperties);
     // the ID of the parent/avatar changes from session to session.  use a special UUID to indicate the avatar

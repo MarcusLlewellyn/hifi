@@ -731,6 +731,13 @@ void ScriptEngine::init() {
     QScriptValue webSocketConstructorValue = newFunction(WebSocketClass::constructor);
     globalObject().setProperty("WebSocket", webSocketConstructorValue);
 
+    /**jsdoc
+     * Prints a message to the program log and emits {@link Script.printedMessage}.
+     * The message logged is the message values separated by spaces.
+     * <p>Alternatively, you can use {@link Script.print} or one of the {@link console} API methods.</p>
+     * @function print
+     * @param {...*} [message] - The message values to print.
+     */
     globalObject().setProperty("print", newFunction(debugPrint));
 
     QScriptValue audioEffectOptionsConstructorValue = newFunction(AudioEffectOptions::constructor);
@@ -1027,8 +1034,8 @@ void ScriptEngine::addEventHandler(const EntityItemID& entityID, const QString& 
         };
 
         /**jsdoc
-         * The name of an entity event. When the entity event occurs, any function that has been registered for that event via 
-         * {@link Script.addEventHandler} is called with parameters per the entity event.
+         * <p>The name of an entity event. When the entity event occurs, any function that has been registered for that event via 
+         * {@link Script.addEventHandler} is called with parameters per the entity event.</p>
          * <table>
          *   <thead>
          *     <tr><th>Event Name</th><th>Entity Event</th></tr>

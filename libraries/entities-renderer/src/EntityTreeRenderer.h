@@ -118,6 +118,7 @@ public:
     void setProxyWindow(const EntityItemID& id, QWindow* proxyWindow);
     void setCollisionSound(const EntityItemID& id, const SharedSoundPointer& sound);
     EntityItemPointer getEntity(const EntityItemID& id);
+    void deleteEntity(const EntityItemID& id) const;
     void onEntityChanged(const EntityItemID& id);
 
     // Access the workload Space
@@ -210,6 +211,8 @@ private:
     std::function<RayToEntityIntersectionResult(unsigned int)> _getPrevRayPickResultOperator;
     std::function<void(unsigned int, bool)> _setPrecisionPickingOperator;
 
+    bool _mouseAndPreloadSignalHandlersConnected { false };
+
     class LayeredZone {
     public:
         LayeredZone(std::shared_ptr<ZoneEntityItem> zone) : zone(zone), id(zone->getID()), volume(zone->getVolumeEstimate()) {}
@@ -227,7 +230,7 @@ private:
 
     class LayeredZones : public std::vector<LayeredZone> {
     public:
-        bool clearDomainAndNonOwnedZones(const QUuid& sessionUUID);
+        bool clearDomainAndNonOwnedZones();
 
         void sort() { std::sort(begin(), end(), std::less<LayeredZone>()); }
         bool equals(const LayeredZones& other) const;

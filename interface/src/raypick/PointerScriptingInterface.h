@@ -41,7 +41,7 @@ public:
      * @property {Controller.Standard|Controller.Actions|function} action - The controller output or function that triggers the 
      *     events on the entity or overlay. If a function, it must return a number <code>&gt;= 1.0</code> to start the action 
      *     and <code>&lt; 1.0</code> to terminate the action.
-     * @property {string} button - Which button to trigger.
+     * @property {string} button - Which button to trigger:
      *    <ul>
      *      <li><code>"Primary"</code>, <code>"Secondary"</code>, and <code>"Tertiary"</code> cause {@link Entities} and 
      *      {@link Overlays} mouse pointer events. Other button names also cause mouse events but the <code>button</code> 
@@ -161,13 +161,14 @@ public:
     Q_INVOKABLE void removePointer(unsigned int uid) const { DependencyManager::get<PointerManager>()->removePointer(uid); }
 
     /**jsdoc
-    * Gets the parameters that were passed in to {@link Pointers.createPointer} to create the pointer,
-    * if the pointer was created through a script.
-    * Note that these properties do not reflect the current state of the pointer.
-    * See {@link Pointers.getPointerProperties}.
+    * Gets the parameters that were passed in to {@link Pointers.createPointer} to create the pointer when the pointer was 
+    * created through a script. 
+    * <p><strong>Note:</strong> These properties do not reflect the current state of the pointer. To get the current state 
+    * of the pointer, see {@link Pointers.getPointerProperties}.
     * @function Pointers.getPointerScriptParameters
     * @param {number} id - The ID of the pointer.
-    * @returns {Pointers.RayPointerProperties|Picks.ParabolaPointerProperties|Picks.StylusPointerProperties} User-provided properties, per the pointer <code>type</code>.
+    * @returns {Pointers.RayPointerProperties|Picks.ParabolaPointerProperties|Picks.StylusPointerProperties} 
+    *     Script-provided properties, per the pointer <code>type</code>.
     */
     Q_INVOKABLE QVariantMap getPointerScriptParameters(unsigned int uid) const;
 

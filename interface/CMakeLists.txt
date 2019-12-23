@@ -70,12 +70,16 @@ file(GLOB_RECURSE INTERFACE_SRCS "src/*.cpp" "src/*.h")
 GroupSources("src")
 list(APPEND INTERFACE_SRCS ${RESOURCES_RCC})
 
+# grab the Objective-C sources on OS X
+if (APPLE)
+  file(GLOB_RECURSE INTERFACE_OBJCPP_SRCS "src/*.m" "src/*.mm")
+  list(APPEND INTERFACE_SRCS ${INTERFACE_OBJCPP_SRCS})
+endif ()
+
 # Add SpeechRecognizer if on Windows or OS X, otherwise remove
 if (WIN32)
   # Use .cpp and .h files as is.
 elseif (APPLE)
-  file(GLOB INTERFACE_OBJCPP_SRCS "src/SpeechRecognizer.mm")
-  set(INTERFACE_SRCS ${INTERFACE_SRCS} ${INTERFACE_OBJCPP_SRCS})
   get_filename_component(SPEECHRECOGNIZER_CPP "src/SpeechRecognizer.cpp" ABSOLUTE)
   list(REMOVE_ITEM INTERFACE_SRCS ${SPEECHRECOGNIZER_CPP})
 else ()
@@ -181,7 +185,10 @@ if (BUILD_TOOLS AND NPM_EXECUTABLE)
   add_dependencies(resources jsdoc)
 endif()
 
-add_dependencies(${TARGET_NAME} resources)
+if (WIN32 OR APPLE)
+    add_dependencies(${TARGET_NAME} resources screenshare)
+endif()
+
 
 if (WIN32)
   # These are external plugins, but we need to do the 'add dependency' here so that their
@@ -207,10 +214,10 @@ endif()
 link_hifi_libraries(
   shared workload task octree ktx gpu gl procedural graphics graphics-scripting render
   pointers recording hfm fbx networking material-networking
-  model-networking model-baker entities avatars trackers
+  model-networking model-baker entities avatars
   audio audio-client animation script-engine physics
   render-utils entities-renderer avatars-renderer ui qml auto-updater midi
-  controllers plugins image trackers platform
+  controllers plugins image platform
   ui-plugins display-plugins input-plugins
   # Platform specific GL libraries
   ${PLATFORM_GL_BACKEND}
@@ -319,6 +326,10 @@ if (APPLE)
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
       "${CMAKE_SOURCE_DIR}/scripts"
       "${RESOURCES_DEV_DIR}/scripts"
+    # copy screenshare app to the resource folder
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+      "${CMAKE_CURRENT_BINARY_DIR}/../screenshare/hifi-screenshare-darwin-x64/hifi-screenshare.app"
+      "${RESOURCES_DEV_DIR}/hifi-screenshare.app"
     # copy JSDoc files beside the executable
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
       "${CMAKE_SOURCE_DIR}/tools/jsdoc/out"
@@ -343,7 +354,7 @@ if (APPLE)
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
       "${PROJECT_SOURCE_DIR}/resources/serverless/redirect.json"
       "${RESOURCES_DEV_DIR}/serverless/redirect.json"
-  )
+    )
 
   # call the fixup_interface macro to add required bundling commands for installation
   fixup_interface()

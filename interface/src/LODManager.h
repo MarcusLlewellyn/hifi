@@ -23,40 +23,112 @@
 #include <render/Args.h>
 
 
+/**jsdoc
+ * <p>The world detail quality rendered.</p>
+ * <table>
+ *   <thead>
+ *     <tr><th>Value</th><th>Description</th></tr>
+ *   </thead>
+ *   <tbody>
+ *     <tr><td><code>0</code></td><td>Low world detail quality.</td></tr>
+ *     <tr><td><code>1</code></td><td>Medium world detail quality.</td></tr>
+ *     <tr><td><code>2</code></td><td>High world detail quality.</td></tr>
+ *   </tbody>
+ * </table>
+ * @typedef {number} LODManager.WorldDetailQuality
+ */
+enum WorldDetailQuality {
+    WORLD_DETAIL_LOW = 0,
+    WORLD_DETAIL_MEDIUM,
+    WORLD_DETAIL_HIGH
+};
+Q_DECLARE_METATYPE(WorldDetailQuality);
+
 #ifdef Q_OS_ANDROID
 const float LOD_DEFAULT_QUALITY_LEVEL = 0.2f; // default quality level setting is High (lower framerate)
 #else
 const float LOD_DEFAULT_QUALITY_LEVEL = 0.5f; // default quality level setting is Mid
 #endif
-const float LOD_MAX_LIKELY_DESKTOP_FPS = 60.0f; // this is essentially, V-synch fps
+
 #ifdef Q_OS_ANDROID
-const float LOD_MAX_LIKELY_HMD_FPS = 36.0f; // this is essentially, V-synch fps
+const WorldDetailQuality DEFAULT_WORLD_DETAIL_QUALITY = WORLD_DETAIL_LOW;
+const std::vector<float> QUALITY_TO_FPS_DESKTOP = { 60.0f, 30.0f, 15.0f };
+const std::vector<float> QUALITY_TO_FPS_HMD = { 25.0f, 16.0f, 10.0f };
 #else
-const float LOD_MAX_LIKELY_HMD_FPS = 90.0f; // this is essentially, V-synch fps
+const WorldDetailQuality DEFAULT_WORLD_DETAIL_QUALITY = WORLD_DETAIL_MEDIUM;
+const std::vector<float> QUALITY_TO_FPS_DESKTOP = { 60.0f, 30.0f, 15.0f };
+const std::vector<float> QUALITY_TO_FPS_HMD = { 90.0f, 45.0f, 22.5f };
 #endif
 
 const float LOD_OFFSET_FPS = 5.0f; // offset of FPS to add for computing the target framerate
 
 class AABox;
 
+
 /**jsdoc
- * The LOD class manages your Level of Detail functions within Interface.
+ * The <code>LODManager</code> API manages the Level of Detail displayed in Interface. If the LOD is being automatically 
+ * adjusted, the LOD is decreased if the measured frame rate is lower than the target FPS, and increased if the measured frame 
+ * rate is greater than the target FPS.
+ *
  * @namespace LODManager
-  *
+ *
  * @hifi-interface
  * @hifi-client-entity
  * @hifi-avatar
  *
- * @property {number} presentTime <em>Read-only.</em>
- * @property {number} engineRunTime <em>Read-only.</em>
- * @property {number} gpuTime <em>Read-only.</em>
- */
+ * @property {LODManager.WorldDetailQuality} worldDetailQuality - The quality of the rendered world detail.
+ *     <p>Setting this value updates the current desktop or HMD target LOD FPS.</p>
+ * @property {number} lodQualityLevel - <em>Not used.</em>
+ *     <p class="important">Deprecated: This property is deprecated and will be removed.</p>
+ * @property {boolean} automaticLODAdjust - <code>true</code> to automatically adjust the LOD, <code>false</code> to manually 
+ *     adjust it.
+ *
+ * @property {number} engineRunTime - The time spent in the "render" thread to produce the most recent frame, in ms.
+ *     <em>Read-only.</em>
+ * @property {number} batchTime - The time spent in the "present" thread processing the batches of the most recent frame, in ms.
+ *     <em>Read-only.</em>
+ * @property {number} presentTime - The time spent in the "present" thread between the last buffer swap, i.e., the total time 
+ *     to submit the most recent frame, in ms.
+ *     <em>Read-only.</em>
+ * @property {number} gpuTime - The time spent in the GPU executing the most recent frame, in ms.
+ *     <em>Read-only.</em>
+ *
+ * @property {number} nowRenderTime - The current, instantaneous time spend to produce frames, in ms. This is the worst of 
+ *     <code>engineRunTime</code>, <code>batchTime</code>, <code>presentTime</code>, and <code>gpuTime</code>.
+ *     <em>Read-only.</em>
+ * @property {number} nowRenderFPS - The current, instantaneous frame rate, in Hz. 
+ *     <em>Read-only.</em>
+ *
+ * @property {number} smoothScale - The amount of smoothing applied to calculate <code>smoothRenderTime</code> and 
+ *     <code>smoothRenderFPS</code>.
+ * @property {number} smoothRenderTime - The average time spend to produce frames, in ms.
+ *     <em>Read-only.</em>
+ * @property {number} smoothRenderFPS - The average frame rate, in Hz. 
+ *     <em>Read-only.</em>
+ *
+ * @property {number} lodTargetFPS - The target LOD FPS per the current desktop or HMD display mode, capped by the target 
+ *     refresh rate set by the {@link Performance} API.
+ *     <em>Read-only.</em>
 
+ * @property {number} lodAngleDeg - The minimum angular dimension (relative to the camera position) of an entity in order for 
+ *     it to be rendered, in degrees. The angular dimension is calculated as a sphere of radius half the diagonal of the 
+ *     entity's AA box.
+ *
+ * @property {number} pidKp - <em>Not used.</em>
+ * @property {number} pidKi - <em>Not used.</em>
+ * @property {number} pidKd - <em>Not used.</em>
+ * @property {number} pidKv - <em>Not used.</em>
+ * @property {number} pidOp - <em>Not used.</em> <em>Read-only.</em>
+ * @property {number} pidOi - <em>Not used.</em> <em>Read-only.</em>
+ * @property {number} pidOd - <em>Not used.</em> <em>Read-only.</em>
+ * @property {number} pidO - <em>Not used.</em> <em>Read-only.</em>
+ */
 class LODManager : public QObject, public Dependency {
     Q_OBJECT
         SINGLETON_DEPENDENCY
 
-        Q_PROPERTY(float worldDetailQuality READ getWorldDetailQuality WRITE setWorldDetailQuality NOTIFY worldDetailQualityChanged)
+        Q_PROPERTY(WorldDetailQuality worldDetailQuality READ getWorldDetailQuality WRITE setWorldDetailQuality 
+            NOTIFY worldDetailQualityChanged)
 
         Q_PROPERTY(float lodQualityLevel READ getLODQualityLevel WRITE setLODQualityLevel NOTIFY lodQualityLevelChanged)
 
@@ -91,83 +163,96 @@ class LODManager : public QObject, public Dependency {
 public:
 
     /**jsdoc
+     * Sets whether the LOD should be automatically adjusted.
      * @function LODManager.setAutomaticLODAdjust
-     * @param {boolean} value
+     * @param {boolean} value - <code>true</code> to automatically adjust the LOD, <code>false</code> to manually adjust it.
      */
     Q_INVOKABLE void setAutomaticLODAdjust(bool value);
 
     /**jsdoc
+     * Gets whether the LOD is being automatically adjusted.
      * @function LODManager.getAutomaticLODAdjust
-     * @returns {boolean}
+     * @returns {boolean} <code>true</code> if the LOD is being automatically adjusted, <code>false</code> if it is being 
+     *     manually adjusted.
      */
     Q_INVOKABLE bool getAutomaticLODAdjust() const { return _automaticLODAdjust; }
 
     /**jsdoc
+     * Sets the target desktop LOD FPS.
      * @function LODManager.setDesktopLODTargetFPS
-     * @param {number} value
+     * @param {number} value - The target desktop LOD FPS, in Hz.
      */
     Q_INVOKABLE void setDesktopLODTargetFPS(float value);
 
     /**jsdoc
+     * Gets the target desktop LOD FPS.
      * @function LODManager.getDesktopLODTargetFPS
-     * @returns {number}
+     * @returns {number}  The target desktop LOD FPS, in Hz.
      */
 
     Q_INVOKABLE float getDesktopLODTargetFPS() const;
 
     /**jsdoc
+     * Sets the target HMD LOD FPS.
      * @function LODManager.setHMDLODTargetFPS
-     * @param {number} value
+     * @param {number} value - The target HMD LOD FPS, in Hz.
      */
 
     Q_INVOKABLE void setHMDLODTargetFPS(float value);
 
     /**jsdoc
+     * Gets the target HMD LOD FPS.
+     * The target FPS in HMD mode. The LOD is adjusted to ...
      * @function LODManager.getHMDLODTargetFPS
-     * @returns {number}
+     * @returns {number} The target HMD LOD FPS, in Hz.
      */
     Q_INVOKABLE float getHMDLODTargetFPS() const;
 
 
     // User Tweakable LOD Items
+
     /**jsdoc
+     * Gets a text description of the current level of detail rendered.
      * @function LODManager.getLODFeedbackText
-     * @returns {string}
+     * @returns {string} A text description of the current level of detail rendered.
+     * @example <caption>Report the current level of detail rendered.</caption>
+     * print("You can currently see: " + LODManager.getLODFeedbackText());
      */
     Q_INVOKABLE QString getLODFeedbackText();
 
     /**jsdoc
      * @function LODManager.setOctreeSizeScale
-     * @param {number} sizeScale
-     * @deprecated This function is deprecated and will be removed. Use the {@link LODManager.lodAngleDeg} property instead.
+     * @param {number} sizeScale - The octree size scale.
+     * @deprecated This function is deprecated and will be removed. Use the <code>lodAngleDeg</code> property instead.
      */
     Q_INVOKABLE void setOctreeSizeScale(float sizeScale);
 
     /**jsdoc
      * @function LODManager.getOctreeSizeScale
-     * @returns {number}
-     * @deprecated This function is deprecated and will be removed. Use the {@link LODManager.lodAngleDeg} property instead.
+     * @returns {number} The octree size scale.
+     * @deprecated This function is deprecated and will be removed. Use the <code>lodAngleDeg</code> property instead.
      */
     Q_INVOKABLE float getOctreeSizeScale() const;
 
     /**jsdoc
      * @function LODManager.setBoundaryLevelAdjust
-     * @param {number} boundaryLevelAdjust
+     * @param {number} boundaryLevelAdjust - The boundary level adjust factor.
      * @deprecated This function is deprecated and will be removed.
      */
     Q_INVOKABLE void setBoundaryLevelAdjust(int boundaryLevelAdjust);
 
     /**jsdoc
      * @function LODManager.getBoundaryLevelAdjust
-     * @returns {number}
+     * @returns {number} The boundary level adjust factor.
      * @deprecated This function is deprecated and will be removed.
      */
     Q_INVOKABLE int getBoundaryLevelAdjust() const { return _boundaryLevelAdjust; }
 
     /**jsdoc
-    * @function LODManager.getLODTargetFPS
-    * @returns {number}
-    */
+     * The target LOD FPS per the current desktop or HMD display mode, capped by the target refresh rate.
+     * @function LODManager.getLODTargetFPS
+     * @returns {number} The target LOD FPS, in Hz.
+     */
     Q_INVOKABLE float getLODTargetFPS() const;
 
 
@@ -193,8 +278,8 @@ public:
     float getSmoothRenderTime() const { return _smoothRenderTime; };
     float getSmoothRenderFPS() const { return (_smoothRenderTime > 0.0f ? (float)MSECS_PER_SECOND / _smoothRenderTime : 0.0f); };
 
-    void setWorldDetailQuality(float quality);
-    float getWorldDetailQuality() const;
+    void setWorldDetailQuality(WorldDetailQuality quality);
+    WorldDetailQuality getWorldDetailQuality() const;
 
     void setLODQualityLevel(float quality);
     float getLODQualityLevel() const;
@@ -220,29 +305,50 @@ public:
     float getPidOd() const;
     float getPidO() const;
 
-    static const float DEFAULT_DESKTOP_LOD_DOWN_FPS;
-    static const float DEFAULT_HMD_LOD_DOWN_FPS;
-
 signals:
 
     /**jsdoc
+     * <em>Not triggered.</em>
      * @function LODManager.LODIncreased
      * @returns {Signal}
+     * @deprecated This signal is deprecated and will be removed.
      */
     void LODIncreased();
 
     /**jsdoc
+     * <em>Not triggered.</em>
      * @function LODManager.LODDecreased
      * @returns {Signal}
+     * @deprecated This signal is deprecated and will be removed.
      */
     void LODDecreased();
 
+    /**jsdoc
+     * Triggered when whether or not the LOD is being automatically adjusted changes. 
+     * @function LODManager.autoLODChanged
+     * @returns {Signal}
+     */
     void autoLODChanged();
+
+    /**jsdoc
+     * Triggered when the <code>lodQualityLevel</code> property value changes.
+     * @function LODManager.lodQualityLevelChanged
+     * @returns {Signal}
+     * @deprecated This signal is deprecated and will be removed.
+     */
     void lodQualityLevelChanged();
+
+    /**jsdoc
+     * Triggered when the world detail quality changes.
+     * @function LODManager.worldDetailQualityChanged
+     * @returns {Signal}
+     */
     void worldDetailQualityChanged();
 
 private:
     LODManager();
+
+    void setWorldDetailQuality(WorldDetailQuality quality, bool isHMDMode);
 
     std::mutex _automaticLODLock;
     bool _automaticLODAdjust = true;
@@ -258,8 +364,11 @@ private:
 
     float _lodQualityLevel{ LOD_DEFAULT_QUALITY_LEVEL };
 
-    float _desktopTargetFPS { LOD_OFFSET_FPS + LOD_DEFAULT_QUALITY_LEVEL * LOD_MAX_LIKELY_DESKTOP_FPS };
-    float _hmdTargetFPS { LOD_OFFSET_FPS + LOD_DEFAULT_QUALITY_LEVEL * LOD_MAX_LIKELY_HMD_FPS };
+    WorldDetailQuality _desktopWorldDetailQuality { DEFAULT_WORLD_DETAIL_QUALITY };
+    WorldDetailQuality _hmdWorldDetailQuality { DEFAULT_WORLD_DETAIL_QUALITY };
+
+    float _desktopTargetFPS { QUALITY_TO_FPS_DESKTOP[_desktopWorldDetailQuality] };
+    float _hmdTargetFPS { QUALITY_TO_FPS_HMD[_hmdWorldDetailQuality] };
 
     float _lodHalfAngle = getHalfAngleFromVisibilityDistance(DEFAULT_VISIBILITY_DISTANCE_FOR_UNIT_ELEMENT);
     int _boundaryLevelAdjust = 0;
@@ -268,5 +377,8 @@ private:
     glm::vec4 _pidHistory{ 0.0f };
     glm::vec4 _pidOutputs{ 0.0f };
 };
+
+QScriptValue worldDetailQualityToScriptValue(QScriptEngine* engine, const WorldDetailQuality& worldDetailQuality);
+void worldDetailQualityFromScriptValue(const QScriptValue& object, WorldDetailQuality& worldDetailQuality);
 
 #endif // hifi_LODManager_h

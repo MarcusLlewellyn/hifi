@@ -512,10 +512,10 @@ void AvatarMixer::handleAvatarKilled(SharedNodePointer avatarNode) {
             // we relay avatar kill packets to agents that are not upstream
             // and downstream avatar mixers, if the node that was just killed was being replicatedConnectedAgent
             return node->getActiveSocket() &&
-                ((node->getType() == NodeType::Agent && !node->isUpstream()) ||
+                (((node->getType() == NodeType::Agent || node->getType() == NodeType::EntityScriptServer) && !node->isUpstream()) ||
                  (avatarNode->isReplicated() && shouldReplicateTo(*avatarNode, *node)));
         }, [&](const SharedNodePointer& node) {
-            if (node->getType() == NodeType::Agent) {
+            if (node->getType() == NodeType::Agent || node->getType() == NodeType::EntityScriptServer) {
                 if (!killPacket) {
                     killPacket = NLPacket::create(PacketType::KillAvatar, NUM_BYTES_RFC4122_UUID + sizeof(KillAvatarReason), true);
                     killPacket->write(avatarNode->getUUID().toRfc4122());
@@ -1080,6 +1080,12 @@ void AvatarMixer::setupEntityQuery() {
     QJsonObject priorityZoneQuery;
     priorityZoneQuery["avatarPriority"] = true;
     priorityZoneQuery["type"] = "Zone";
+
+    QJsonObject queryFlags;
+    queryFlags["includeAncestors"] = true;
+    queryFlags["includeDescendants"] = true;
+    priorityZoneQuery["flags"] = queryFlags;
+    priorityZoneQuery["name"] = true; // Handy for debugging.
 
     _entityViewer.getOctreeQuery().setJSONParameters(priorityZoneQuery);
     _slaveSharedData.entityTree = entityTree;

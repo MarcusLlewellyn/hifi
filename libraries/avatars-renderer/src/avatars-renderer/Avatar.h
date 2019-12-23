@@ -140,7 +140,9 @@ public:
     static void setShowAvatars(bool render);
     static void setShowReceiveStats(bool receiveStats);
     static void setShowMyLookAtVectors(bool showMine);
+    static void setShowMyLookAtTarget(bool showMine);
     static void setShowOtherLookAtVectors(bool showOthers);
+    static void setShowOtherLookAtTarget(bool showOthers);
     static void setShowCollisionShapes(bool render);
     static void setShowNamesAboveHeads(bool show);
 
@@ -468,7 +470,7 @@ public:
     /**jsdoc
      * Sets the joint of the entity or avatar that the avatar is parented to. 
      * @function MyAvatar.setParentJointIndex
-     * @param {number} parentJointIndex - he joint of the entity or avatar that the avatar should be parented to. Use
+     * @param {number} parentJointIndex - The joint of the entity or avatar that the avatar should be parented to. Use
      *     <code>65535</code> or <code>-1</code> to parent to the entity or avatar's position and orientation rather than a 
      *     joint.
      */
@@ -545,8 +547,8 @@ public:
     virtual void setEnableMeshVisible(bool isEnabled);
     virtual bool getEnableMeshVisible() const;
 
-    void addMaterial(graphics::MaterialLayer material, const std::string& parentMaterialName) override;
-    void removeMaterial(graphics::MaterialPointer material, const std::string& parentMaterialName) override;
+    void addMaterial(graphics::MaterialLayer material, const std::string& parentMaterialName);
+    void removeMaterial(graphics::MaterialPointer material, const std::string& parentMaterialName);
 
     virtual scriptable::ScriptableModelBase getScriptableModel() override;
 
@@ -660,6 +662,7 @@ protected:
     std::vector<std::shared_ptr<Model>> _attachmentsToDelete;
 
     float _bodyYawDelta { 0.0f };  // degrees/sec
+    float _seatedBodyYawDelta{ 0.0f };  // degrees/renderframe
 
     // These position histories and derivatives are in the world-frame.
     // The derivatives are the MEASURED results of all external and internal forces
@@ -780,6 +783,7 @@ protected:
     render::ItemIDs _attachmentRenderIDs;
     void updateDescendantRenderIDs();
     render::ItemIDs _descendantRenderIDs;
+    std::unordered_set<EntityItemID> _renderingDescendantEntityIDs;
     uint32_t _lastAncestorChainRenderableVersion { 0 };
 };
 
